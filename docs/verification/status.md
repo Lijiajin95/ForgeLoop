@@ -10076,3 +10076,29 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
   缺口计算、记录往返）；相关规格、覆盖率与详情契约用例同步更新。
 - 未完成：原型演练与候选验证的类型化证据（「待演练／不适用」状态）、样例与实际执行结果的绑定、
   真实模型下的端到端验收；[详细需求说明](../product/requirement-stage-handoff.md)的 AC-1 至 AC-12 尚未逐条验证。
+
+## 272. 研发规划使用配置的工程事实（2026-11-23）
+
+来源：审查研发阶段输入件时发现，新研发链路（系统准入后由协调器连续推进）的规划回合没有把
+`config.engineeringFacts` 传给提示词。
+
+### 272.1 问题与修复
+
+- `runtime/execution-dev.ts` 的 `planInDevSession` 调用 `devPlanningPrompt(requirement, analysis, { tools: 'read' })`，
+  缺 `engineeringFacts`，于是 `engineeringFactsBlock` 回落到硬编码的 `DEFAULT_ENGINEERING_FACTS`
+  （ForgeLoop 自身目录与 `npm run check --workspace forgeloop-dsh`）。受管项目在 `.forgeloop.json`
+  配置的源码目录与检查命令从未进入规划提示词，模型会按错误布局拆任务。
+- 修复：传入 `config.engineeringFacts`，与旧执行链路 `runtime/execution-plan.ts` 一致；未配置时行为不变。
+- 新增 `tests/dev-planning-context.test.ts`：① 配置的工程事实必须出现在规划提示词且内置布局不出现
+  （修复前失败、修复后通过）；② 未配置时仍使用内置事实（锁定现有回落行为）。
+
+### 272.2 验证与边界
+
+- `npx vitest run tests/dev-planning-context.test.ts tests/prompts.test.ts tests/mutation-gap-prompts.test.ts`：35 项通过。
+- 静态检查：typecheck、ESLint、Prettier、架构契约、token 预算、断言预算 18/18 通过。
+- 全量覆盖率运行：233 文件、2624 项通过、1 项跳过，**无覆盖率门槛错误**；6 项失败全部是 60 秒超时
+  （`candidate-build` 2、`issue-retry-loop` 2 + 1 条清理 EPERM、`mutation-gap-verify-deep` 2）。
+  在**未修改的 main** 上单跑 `issue-retry-loop` 同一用例同样 62 秒超时，确认是本机负载下的既有易碎性，
+  与本改动无关；未下调超时或覆盖率门槛。
+- 已知边界：未配置 `engineeringFacts` 的项目仍会拿到 ForgeLoop 自身的布局事实。该回落是否应按项目
+  中性化（例如只给 activeRoots 与已登记依赖）需要单独方案，本批未改。
