@@ -28,6 +28,7 @@
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | [architecture.md](development/architecture.md)                 | 当前模块、持久化与外部接缝，对应源码和架构契约                                           |
 | [deployment.md](development/deployment.md)                     | 当前本机安装、升级、验证与恢复操作                                                       |
+| [verification-environment.md](development/verification-environment.md) | 独立 DSH Web 验证环境的启动、入库保护与验收方案（拟议） |
 | [deployment-interface.md](development/deployment-interface.md) | 部署接口方案：外部工具契约、目标与授权、状态机与回退（部分实现）                         |
 | [ops-agent.md](development/ops-agent.md)                       | 运维 Agent：登记目录、检查与定时主动监控、事件、诊断、授权处置、恢复复核、外部告警与限制 |
 | [reliability.md](development/reliability.md)                   | 进阶可靠性门禁：清单、属性测试与 seed 复现、状态机覆盖、稳定性、增量变异与报告口径       |
