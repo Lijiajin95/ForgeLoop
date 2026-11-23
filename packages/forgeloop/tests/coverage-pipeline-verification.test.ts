@@ -21,6 +21,7 @@ import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runne
 import type { PlannedTask, TaskPlan } from '../src/domain/task-plan.js'
 import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
 import { EXECUTING } from '../src/domain/status.js'
+import type { PlanReview } from '../src/domain/verification.js'
 import type { OperationResult } from '../src/runtime/operation-result.js'
 
 /**
@@ -126,6 +127,23 @@ function planReviewOf(verdict: 'pass' | 'block' = 'pass'): string {
     sessionId: 'session-plan-review',
     at: NOW,
   })
+}
+
+function baselineOf(): PlanReview {
+  return {
+    verdict: 'pass',
+    blocking: [],
+    findings: [],
+    summary: '由产品 Agent 的需求说明生成验证基线',
+    verificationPlan: [
+      {
+        scenario: SCENARIO,
+        acceptanceCriterion: CRITERION,
+        method: '测试 Agent 在独立候选上设计并执行自动化测试',
+        required: true,
+      },
+    ],
+  }
 }
 
 function verificationReportOf(overrides: Record<string, unknown> = {}): string {
@@ -393,9 +411,6 @@ function setup(options: SetupOptions = {}) {
     runner,
     formalTest: formalTest as unknown as typeof runFormalTest,
     ctx: {} as never,
-    openAgent: async () => {
-      throw new Error('验证流水线不应打开多轮会话')
-    },
     candidateIdentity: identityOf,
     requireAuthorizedPlan: options.authorize ?? (() => ({ ok: true, value: { plan } }) as const),
     applyDiffFile,
@@ -405,7 +420,7 @@ function setup(options: SetupOptions = {}) {
         ? options.reopen(input)
         : [{ taskId: 'a', attempt: 1, archivedPath: '/tmp/archived' }]
     },
-    verificationBaseline: () => planReviewOf() as never,
+    verificationBaseline: () => baselineOf(),
     remainingFailureRounds: () => options.remainingRounds ?? 2,
   }
 
@@ -491,25 +506,19 @@ describe('executeVerification input gates', () => {
     expect(outcome.detail).toBe('任务 b 缺少交付证据；不能验证')
   })
 
-  it('refuses to verify before the plan review happened', async () => {
+  it('verifies without any implementation-before review, using the analysis baseline', async () => {
     const built = setup({ planReview: null })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
-    expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toBe('任务包 v1 尚未通过实现前评审；不能开始独立测试')
+    expect(outcome.state).toBe('done')
+    expect(statusOf()).toBe(EXECUTING)
+    expect(built.verifyPrompts[0]).toContain(SCENARIO)
+    expect(built.verifyPrompts[0]).toContain('由产品 Agent 的需求说明生成验证基线')
   })
 
-  it('refuses to verify a plan whose review was a block', async () => {
+  it('ignores a blocking implementation-before review when judging the candidate', async () => {
     const built = setup({ planReview: { verdict: 'block', reportJson: planReviewOf('block') } })
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
-    expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('实现前评审未通过：任务包缺少正式测试证据')
-  })
-
-  it('fails closed when the plan review evidence is malformed', async () => {
-    const built = setup({ planReview: { verdict: 'pass', reportJson: 'not json' } })
-    const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
-    expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('实现前评审证据畸形')
+    expect(outcome.state).toBe('done')
   })
 
   it('refuses to verify a candidate that already has a blocking verification', async () => {

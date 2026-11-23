@@ -20,7 +20,7 @@ import { applyDiffFile } from '../src/runtime/diff-apply.js'
 import { Repository } from '../src/records/repository.js'
 import { Database } from '../src/records/db.js'
 import { candidateIdentityOf, sha256OfText } from '../src/domain/delivery.js'
-import type { VerificationPlan } from '../src/domain/verification.js'
+import type { PlanReview, VerificationPlan } from '../src/domain/verification.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import type { OperationResult } from '../src/runtime/operation-result.js'
 import type { PlannedTask, TaskPlan } from '../src/domain/task-plan.js'
@@ -919,6 +919,23 @@ function planReviewJson(verdict: 'pass' | 'block' = 'pass'): string {
   })
 }
 
+function baselineOf(): PlanReview {
+  return {
+    verdict: 'pass',
+    blocking: [],
+    findings: [],
+    summary: '由产品 Agent 的需求说明生成验证基线',
+    verificationPlan: [
+      {
+        scenario: SCENARIO,
+        acceptanceCriterion: CRITERION,
+        method: '在独立候选上执行测试命令',
+        required: true,
+      },
+    ],
+  }
+}
+
 function pipelineReport(
   overrides: { scenario?: string; status?: string; evidence?: string; commands?: string[] } = {},
 ): Record<string, unknown> {
@@ -1125,9 +1142,6 @@ function setupPipeline(options: PipelineOptions = {}) {
       return runFormalTest(request)
     }) as unknown as typeof runFormalTest,
     ctx: {} as never,
-    openAgent: async () => {
-      throw new Error('验证流水线不应打开多轮会话')
-    },
     candidateIdentity: identityOf,
     requireAuthorizedPlan: options.authorize ?? (() => ({ ok: true, value: { plan } }) as const),
     applyDiffFile,
@@ -1135,7 +1149,7 @@ function setupPipeline(options: PipelineOptions = {}) {
       reopened.push(input)
       return [{ taskId: 'a', attempt: 1, archivedPath: '/tmp/archived' }]
     },
-    verificationBaseline: () => planReviewJson() as never,
+    verificationBaseline: () => baselineOf(),
     remainingFailureRounds: () => 2,
   }
 

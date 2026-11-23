@@ -14,8 +14,7 @@ import {
   validateBusinessReview,
   type BusinessReview,
 } from '../domain/business-review.js'
-import { parsePlanReview } from '../domain/verification.js'
-import { planReviewBlocking, verificationBlocking } from './service-helpers.js'
+import { verificationBlocking } from './service-helpers.js'
 import { blockingOf, reviewFacts, runStatusLabel } from './review-facts.js'
 import { EXECUTING } from '../domain/status.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
@@ -26,7 +25,7 @@ import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/countin
 import { workLimitSeconds } from '../domain/budget.js'
 import { ExecutionBudget } from '../domain/limits.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
-import type { AgentOpenRequest, AgentRunner, AgentSession } from './agent-runner.js'
+import type { AgentRunner } from './agent-runner.js'
 import type { runFormalTest } from './formal-test.js'
 import { businessReviewPrompt, verificationPrompt } from './prompts.js'
 import {
@@ -54,7 +53,6 @@ export interface VerificationPipelineDeps {
   runner: { run: AgentRunner['run'] }
   formalTest: typeof runFormalTest
   ctx: NonNullable<Parameters<typeof runFormalTest>[0]['ctx']>
-  openAgent: (request: AgentOpenRequest) => Promise<AgentSession>
   candidateIdentity: (plan: TaskPlan, artifacts: ReturnType<Repository['taskArtifacts']>) => string
   requireAuthorizedPlan: (
     reqId: string,
@@ -118,7 +116,7 @@ export class VerificationPipeline {
     reqId: string
     plan: TaskPlan
     candidateSha256: string
-    planReviewSha256: string
+    baselineSha256: string
     blocking: readonly string[]
     attempt: { number: number; previousAttemptId: string; dir: string }
   }): string {
@@ -138,7 +136,7 @@ export class VerificationPipeline {
       attemptNumber: input.attempt.number,
       previousAttemptId: input.attempt.previousAttemptId,
       workspaceSha256: '',
-      planReviewSha256: input.planReviewSha256,
+      verificationBaselineSha256: input.baselineSha256,
       verdict: 'block',
       failureKind: classification.kind,
       summary: '候选无法在当前基线组装，未执行测试命令',
@@ -219,6 +217,17 @@ export class VerificationPipeline {
     }
   }
 
+  private skipVerificationOutcome(
+    reqId: string,
+    plan: TaskPlan,
+    candidateSha256: string,
+  ): { state: 'done' | 'failed'; detail: string } | null {
+    return (
+      this.existingVerificationOutcome(reqId, plan, candidateSha256) ??
+      this.verificationBudgetGuard(reqId, plan)
+    )
+  }
+
   private verificationBudgetGuard(
     reqId: string,
     plan: TaskPlan,
@@ -236,8 +245,8 @@ export class VerificationPipeline {
   private async prepareVerificationWorkspace(input: {
     reqId: string
     plan: TaskPlan
-    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
     candidateSha256: string
+    baselineSha256: string
     attempt: { number: number; previousAttemptId: string; dir: string }
   }): Promise<
     | {
@@ -250,7 +259,7 @@ export class VerificationPipeline {
       }
     | { ok: false; outcome: { state: 'failed'; detail: string } }
   > {
-    const { reqId, plan, reviewRecord, candidateSha256, attempt } = input
+    const { reqId, plan, candidateSha256, baselineSha256, attempt } = input
     const dir = attempt.dir
     const workspace = join(dir, 'workspace')
     mkdirSync(dir, { recursive: true })
@@ -281,7 +290,7 @@ export class VerificationPipeline {
           reqId,
           plan,
           candidateSha256,
-          planReviewSha256: reviewRecord.reportSha256,
+          baselineSha256,
           blocking,
           attempt,
         })
@@ -383,8 +392,6 @@ export class VerificationPipeline {
         analysis: RequirementAnalysis
         plan: TaskPlan
         artifacts: ReturnType<Repository['taskArtifacts']>
-        reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
-        planReview: PlanReview
         candidateSha256: string
       }
     | { ok: false; outcome: { state: 'failed'; detail: string } } {
@@ -432,42 +439,12 @@ export class VerificationPipeline {
         },
       }
     }
-    const reviewRecord = this.deps.repo.planReview(reqId, plan.planVersion)
-    if (!reviewRecord) {
-      return {
-        ok: false,
-        outcome: {
-          state: 'failed',
-          detail: `任务包 v${plan.planVersion} 尚未通过实现前评审；不能开始独立测试`,
-        },
-      }
-    }
-    if (reviewRecord.verdict !== 'pass') {
-      return {
-        ok: false,
-        outcome: {
-          state: 'failed',
-          detail: `任务包 v${plan.planVersion} 的实现前评审未通过：${planReviewBlocking(reviewRecord.reportJson)}`,
-        },
-      }
-    }
-    let planReview: PlanReview
-    try {
-      planReview = parsePlanReview(reviewRecord.reportJson)
-    } catch (error) {
-      return {
-        ok: false,
-        outcome: { state: 'failed', detail: `实现前评审证据畸形：${errorMessage(error)}` },
-      }
-    }
     return {
       ok: true,
       requirement,
       analysis,
       plan,
       artifacts,
-      reviewRecord,
-      planReview,
       candidateSha256: this.deps.candidateIdentity(plan, artifacts),
     }
   }
@@ -476,8 +453,8 @@ export class VerificationPipeline {
     reqId: string
     signal: AbortSignal
     plan: TaskPlan
-    reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
     planReview: PlanReview
+    baselineSha256: string
     candidateSha256: string
     workspaceSha256: string
     run: Awaited<ReturnType<AgentRunner['run']>>
@@ -591,8 +568,8 @@ export class VerificationPipeline {
     input: {
       reqId: string
       plan: TaskPlan
-      reviewRecord: NonNullable<ReturnType<Repository['planReview']>>
       candidateSha256: string
+      baselineSha256: string
       workspaceSha256: string
       run: Awaited<ReturnType<AgentRunner['run']>>
       report: VerificationReport
@@ -620,7 +597,7 @@ export class VerificationPipeline {
       attemptNumber: input.attempt.number,
       previousAttemptId: input.attempt.previousAttemptId,
       workspaceSha256: input.workspaceSha256,
-      planReviewSha256: input.reviewRecord.reportSha256,
+      verificationBaselineSha256: input.baselineSha256,
       verdict: conclusion.verdict,
       ...(classification
         ? {
@@ -775,18 +752,17 @@ export class VerificationPipeline {
   ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
     const inputs = this.verificationInputs(reqId)
     if (!inputs.ok) return inputs.outcome
-    const { requirement, analysis, plan, artifacts, reviewRecord, planReview, candidateSha256 } =
-      inputs
-    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
-    if (existingOutcome) return existingOutcome
-    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
-    if (budgetOutcome) return budgetOutcome
+    const { requirement, analysis, plan, artifacts, candidateSha256 } = inputs
+    const skip = this.skipVerificationOutcome(reqId, plan, candidateSha256)
+    if (skip) return skip
+    const planReview = this.deps.verificationBaseline(analysis)
+    const baselineSha256 = sha256OfText(JSON.stringify(planReview))
     const attempt = this.attemptOf(reqId, plan, candidateSha256)
     const prepared = await this.prepareVerificationWorkspace({
       reqId,
       plan,
-      reviewRecord,
       candidateSha256,
+      baselineSha256,
       attempt,
     })
     if (!prepared.ok) return prepared.outcome
@@ -899,8 +875,8 @@ export class VerificationPipeline {
       reqId,
       signal,
       plan,
-      reviewRecord,
       planReview,
+      baselineSha256,
       candidateSha256,
       workspaceSha256,
       run,
@@ -926,17 +902,15 @@ export class VerificationPipeline {
   ): Promise<{ state: 'done' | 'failed' | 'repair'; detail: string }> {
     const inputs = this.verificationInputs(reqId)
     if (!inputs.ok) return inputs.outcome
-    const { requirement, analysis, plan, artifacts, reviewRecord, candidateSha256 } = inputs
-    const existingOutcome = this.existingVerificationOutcome(reqId, plan, candidateSha256)
-    if (existingOutcome) return existingOutcome
-    const budgetOutcome = this.verificationBudgetGuard(reqId, plan)
-    if (budgetOutcome) return budgetOutcome
+    const { requirement, analysis, plan, artifacts, candidateSha256 } = inputs
+    const skip = this.skipVerificationOutcome(reqId, plan, candidateSha256)
+    if (skip) return skip
     const attempt = this.attemptOf(reqId, plan, candidateSha256)
     const prepared = await this.prepareVerificationWorkspace({
       reqId,
       plan,
-      reviewRecord,
       candidateSha256,
+      baselineSha256: '',
       attempt,
     })
     if (!prepared.ok) return prepared.outcome

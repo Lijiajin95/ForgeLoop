@@ -217,7 +217,6 @@ export class ForgeLoopRuntime {
       runner: this.runner,
       formalTest: this.formalTest,
       ctx: this.ctx,
-      openAgent: async (request) => await this.openAgent(request),
       candidateIdentity: (plan, artifacts) => this.candidateIdentity(plan, artifacts),
       requireAuthorizedPlan: (reqId) => this.requireAuthorizedPlan(reqId),
       applyDiffFile,

@@ -125,9 +125,6 @@ function harness(
       throw new Error('黑盒路径的命令由 legacy 注册表执行')
     },
     ctx: {},
-    openAgent: () => {
-      throw new Error('黑盒路径不应打开多轮研发会话')
-    },
     candidateIdentity: () => 'candidate-blackbox',
     requireAuthorizedPlan: () => ({ ok: true, value: { plan } }),
     applyDiffFile: () => ({ ok: true, detail: '' }),
