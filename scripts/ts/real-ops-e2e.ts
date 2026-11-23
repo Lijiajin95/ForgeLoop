@@ -26,6 +26,10 @@ import { launch, npmLaunch, terminate } from './platform.ts'
 const PYTHON =
   process.platform === 'win32' ? 'python.exe' : process.env.FORGELOOP_PYTHON?.trim() || 'python3'
 
+import { requireVerificationContainer } from './verification-container.ts'
+
+requireVerificationContainer()
+
 const ROOT = resolve(import.meta.dirname, '../..')
 /** 中断验收：部署进入 applying 后真实杀掉协调宿主，重启后由协调器核对恢复。 */
 const INTERRUPT = process.env.FORGELOOP_REAL_OPS_INTERRUPT === '1'
@@ -671,6 +675,7 @@ async function main(): Promise<void> {
     '--profile',
     'm1-ops-host',
     'add',
+    '--offline',
     tarball,
   ])
   run(pluginCommand, pluginArgs, { cwd: ROOT, env })

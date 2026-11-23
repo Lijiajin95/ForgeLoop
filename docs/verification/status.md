@@ -9857,3 +9857,133 @@ sha256 `da0914f2…`，安装到 `profiles/web` 并禁用/启用 bundle 重载�
   截图 `.cache/ui-verify/17-product-dblclick.png`、`18-product-title-dblclick.png`。
 - 未做：未在 390px 窄屏重复双击验证；窗口仍是页内遮罩，未改为独立浏览器窗口。
 
+## 268. 研发阶段人工评审口径与准出范围（2026-11-23）
+
+所有者明确要求去除研发阶段内部评审，保留统一研发准出出口，取消旧流程兼容。
+评审按实际人工投入判断，研发自验、独立测试、自动业务终审及提交检查分别保留其执行职责。
+
+本批计划与实际文件范围均为三份文档。
+
+| 文件 | 目的 |
+| --- | --- |
+| `docs/product/product.md` | 在 §5.2.1 登记已确认的人工评审边界、旧流程退役要求和待定的准出位置 |
+| `CONTEXT.md` | 补充人工评审与研发准出术语，明确运行时待实施 |
+| 本文件 | 记录当前源码核对、文档批次及后续实施依赖 |
+
+核对基线为 `main@9bd110c`。当前仍有以下实际入口，需要在运行时批次中处理。
+
+- `runtime/board-route.ts` 暴露旧 `plan` 与 `approve` 动作；`runtime/service.ts` 仍能接纳旧任务包批准，
+  并在缺少当前准入时派发 `executeAdvance`。
+- `runtime/execution-plan.ts` 的旧规划执行器仍进入实现前检查和等待批准；`runtime/task-delivery.ts`
+  与 `runtime/advance-pipeline.ts` 保留按任务交付和旧执行分支。
+- `runtime/board.ts` 仍按旧批准与实现前检查生成待办、动作及说明，需随入口退役同步调整。
+- 常规自动研发已经执行自验、独立测试、自动业务终审和提交检查；这些执行证据继续作为准出材料。
+- 现有 `accept` 入口和 `accepted` 状态用于历史验收；当前没有独立的研发准出状态或统一的准出交接协议。
+
+待所有者明确唯一出口的位置和确认方式，再确定对应源码、测试、契约及架构文件清单。
+选择影响受控提交、候选构建、可安装交付和正式部署的先后关系，现有历史批准不能直接变成新准出决定。
+内部人工关口退役与研发准出门禁尚未实施。本批保留当前运行记录和原始历史。
+
+`make contracts`、`make check-static` 与差异空白检查通过；三份文档的本仓库链接 78 项及新增状态锚点检查通过。
+发现但不碰的范围为既有 14 项跨仓 DSH 源码引用，本批未验证外部工程的存在与内容。
+本批为规则与实施边界记录，真实 DSH 研发链路和部署验证待运行时实现后执行。
+
+## 269. Docker 验收迁移与容器实测（2026-11-23）
+
+本批把 DSH 装载、候选安装、后台进程、部署中断和服务端看板验收从宿主进程迁到一次性 Linux 容器。
+入口为 `make <场景>` → `scripts/ts/docker-verify.ts`，镜像定义在 `scripts/docker/verification/Dockerfile`。
+下列结果只对应本轮实际执行；原始证据在本机 `reports/docker-verification/<run>/`（未入库），
+提交与安装记录不以该目录代替。
+
+### 269.1 环境与材料
+
+- 主机：macOS 27.2.1（26B131，aarch64）。Colima 0.10.3，profile `forgeloop-verify`
+  （vz，4 CPU / 4 GiB / 24 GiB，`autoActivate: false`）；Docker CLI 29.10.0 / Engine 29.5.2。
+- 基础镜像：`node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68`。
+  2026-11-23 15:50 +08 通过 Docker Registry 核对，该摘要等于 Docker Hub 官方 `library/node`
+  同一 tag 的 index 摘要；容器内 `node --version` 为 `v26.13.0`。
+- Colima 磁盘镜像：`ubuntu-24.04-minimal-cloudimg-arm64-docker.raw.gz`。首次下载多次中断；
+  本次从官方 release 经本机代理完整下载，文件 SHA-512 为
+  `32242674b046b5057e60c4aba334b51e3665f05412cda89ed081cc2de153ae5c41f6b105b5c442cbe48d78e2cc21e9ba1950e406b6fb4fc2fd1dd2259240abbd`，
+  与 Colima 0.10.3 内置值一致后写入缓存，再启动 profile。
+- 最终构建输入：Git 暂存索引快照 `3680ce4a75e6544f54f12be30b3360ae760d1e5bdcb7cf7df7b3f41dd2501d0e`。
+  Dockerfile 只从该暂存索引构建。容器内 `npm run candidate` 生成候选包，SHA-256
+  `3b22d64edee60b64e6b919fb234bdd01fcf3d2b318bb7c787562b9a57952e439`（438,419 字节）。
+- 未使用正式 DSH、生产数据库、生产凭据或 OrbStack。Docker 命令显式连接
+  `~/.colima/forgeloop-verify/docker.sock`，不依赖宿主当前 Docker context。为让 Colima 内的
+  Docker 访问外部 registry，只在 VM 内配置了指向宿主代理的 `docker.service` 环境
+  （`/etc/systemd/system/docker.service.d/http-proxy.conf`），未写入仓库。
+
+### 269.2 实跑结果
+
+| 场景 | 退出码 | 容器网络 | 结果与证据 |
+| --- | --- | --- | --- |
+| `make e2e` | 0 | `none` | `e2e` 与 `e2e-board` 均通过；看板工作区 `ws-3ab89c00-…`，租户库在容器 `/tmp/forgeloop-e2e-board-1m8ACr/...`；运行 `forgeloop-verify-10f17b34-…`。 |
+| `make m1-seed` | 0 | `none` | 插件 `0.0.2` tarball `3b22d64e…` 装入隔离 `m1-seed` profile；宿主 pid 97 写出的 `runtime-identity.json` 版本、pid 与制品摘要一致；运行 `forgeloop-verify-1759e4f1-…`。 |
+| `make real-deploy-interrupt` | 0 | `none` | 两种结果均完成：副作用可确认 → `applied_pending_verify` / `recovery_applied`；副作用无法确认 → 保留 `applying` / `recovery_unknown` + `alert`；两边安装计数均为 1，无重装；运行 `forgeloop-verify-630b7463-…`。 |
+| `make m0-loop-e2e` | 0 | `none` | S1 提交 `53bb4e42…`、制品 `a1771727…`、部署核对通过；S2 真实杀进程后恢复 `ops-…-3e9e49`；S3 修复需求 `req-…-44a77b` 提交 `2c29b65a…` 并再次部署；停止/恢复与 `maxVerificationAttempts=1` 限额均按预期停住；负例（非所有者批准、工具面无部署/批准、越界文件）全部被拒；运行 `forgeloop-verify-427a007d-…`。 |
+
+M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修复需求
+`req-20261123090306-44a77b`，限额需求 `req-20261123090307-de059e` 在
+`issue-20261123090307-1afed6` 后 blocked。
+
+### 269.3 首轮失败与夹具修复
+
+容器内首次跑 M0 时连续暴露 4 处脚本替身与现行规则不一致；修复后最终运行通过。
+这些都是验收夹具的陈旧预期，不是产品行为变更：
+
+1. 分析业务要点把占位文本 `M0 需求原文` 当作 `user_requirement` 依据，现行校验要求逐字引用
+   当前需求版本。改为从分析提示词中提取当前版本原文后填写 `source`。
+2. 业务终审缺少 `BP-1` 的 `points` 项。补上业务要点终审条目。
+3. 部署工具把 `runningStartedAt` 固定为 `2026-11-05T10:00:00Z`，核对时早于本次安装而被判
+   `verify_failed`；改为 apply 时写当前 UTC 时间。S3 修复需求还需要各自的原文依据，
+   因此同一分析夹具改为按提示词中的当前版本动态引用。
+4. 限额 leg 的失败对照只输出 `broken`，被分类为 `undetermined`（未识别业务断言），
+   没有走到 `requiresCodeChange` 与 `maxVerificationAttempts` 分支。改为输出
+   `AssertionError: expected docs/a.txt to exist` 后，分类为实现缺陷，限额分支生效，
+   blocked 原因包含 `问题单`，最终运行通过。
+
+### 269.4 断网、证据与失败退出码
+
+- 四个无模型场景的 `container.json` 均记录 `"network": "none"`；容器以非 root 用户、
+  `--cap-drop ALL`、`--security-opt no-new-privileges`、`--init` 运行，未发布宿主端口。
+- 每次运行把容器内 `reports/` 导出到 `reports/docker-verification/<run>/`，包括
+  `container.json`、`scenario.json` 和场景自身证据；成功和失败都导出。
+- 失败退出码回传：用非 tarball 文件作为 `FORGELOOP_CANDIDATE_TARBALL` 跑 `make e2e`，
+  容器内 `plugin add` 报 `Failed to decode gzip: Corrupt data`；导出的 `container.json` 为
+  `exitCode: 1`，`scenario.json` 为 `e2e` 退出 1，运行 `forgeloop-verify-67d98110-…`。
+  `make` 把失败 recipe 显示为退出码 2，`docker-verify` 记录并返回容器退出码 1；
+  失败没有被吞掉。
+
+### 269.5 真实模型凭据与未验证项
+
+- 当前环境没有 `FORGELOOP_TEST_DEEPSEEK_API_KEY` 或
+  `FORGELOOP_TEST_QWEN_TOKEN_PLAN_CN_API_KEY`。`node scripts/ts/docker-verify.ts verify-plugin`
+  在创建容器前以退出码 1 拒绝，并提示需要专用测试凭据。
+- 因此 `verify-plugin`、`verify-e2e`、`real-model-e2e`、`real-ops-e2e`、`real-self-e2e`
+  的真实模型 leg 均未验证；模型出站代理只由单元测试覆盖，未做真实模型请求。
+- Linux 容器的通过只覆盖 Linux 场景；Windows 宿主行为与性能未在本轮复测。
+- `.github/workflows/quality.yml` 与 `release.yml` 的 Docker 作业未在 GitHub runner 实跑；
+  `real-host` 作业所需的 `FORGELOOP_TEST_DEEPSEEK_API_KEY` 与 `ENABLE_REAL_HOST` 未配置。
+- Dockerfile 的全局 `npm install` 在当前 npm（11.20.0）下提示 `node-pty`、`koffi`、
+  `protobufjs`、`@deepseek-ai/dsh-subprocess-local` 等安装脚本未执行。四个无模型场景通过，
+  但模型/工具链场景在依赖这些原生模块时可能受影响；在启用真实模型验收前应显式允许所需
+  install scripts 并复跑。
+
+### 269.6 工程检查
+
+- `make check`（清空 `DSH_*` 与 `NODE_PATH` 后）：231 个测试文件通过，2621 项通过、1 项跳过。
+- `make commit-check`（同一干净环境）：231 个测试文件通过，覆盖率 lines/statements 98.41%、branches 93.95%、functions 99.51%，逐文件门槛通过。
+- `make contracts`：通过。
+- `make format`：通过。
+- 文档链接检查：本批修改的文档新增/变更链接 0 缺失；全仓扫描的 18 项均属既存问题或 worktree
+  深度差异（`docs/product/product.md` 的 14 条 `deepseek-harness` 相邻仓库链接在主工作树可解析；
+  `docs/README.md`、`docs/development/architecture.md` 等 4 处既存锚点失效）。未在本批修复。
+
+发现但不碰：
+
+- 在 DSH 会话内直接运行 `make check` 会继承宿主导出的 `DSH_HOME`/`DSH_PROFILE` 等变量，
+  导致 35 项 session-intake 类用例失败；同一失败在干净 `main` 上复现，清空 `DSH_*` 后通过。
+  这是测试环境隔离缺口，不是本批引入。
+- 上述 4 处既存文档锚点。
+- Dockerfile 安装脚本警告与真实模型/CI 未验证项。

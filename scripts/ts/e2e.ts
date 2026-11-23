@@ -10,7 +10,10 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { launch, npmLaunch } from './platform.ts'
+import { launch } from './platform.ts'
+import { requireVerificationContainer, verificationCandidate } from './verification-container.ts'
+
+requireVerificationContainer()
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_E2E_PROFILE ?? 'forgeloop-e2e'
@@ -41,14 +44,8 @@ function run(args: string[]): { code: number; stdout: string; stderr: string } {
 }
 
 try {
-  const build = npmLaunch(['run', 'build', '--workspace', 'forgeloop-dsh'])
-  execFileSync(build.file, [...build.args], {
-    cwd: ROOT,
-    stdio: 'inherit',
-    env: process.env,
-  })
-
-  const installed = run(['plugin', '--profile', PROFILE, 'add', join(ROOT, 'packages/forgeloop')])
+  const candidate = verificationCandidate(ROOT)
+  const installed = run(['plugin', '--profile', PROFILE, 'add', '--offline', candidate.path])
   if (installed.code !== 0)
     failures.push(`plugin add 失败：${installed.stderr || installed.stdout}`)
   else console.log(`[e2e] 已安装 forgeloop-dsh 到 profile=${PROFILE}（DSH_HOME=${home}）`)

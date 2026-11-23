@@ -21,6 +21,10 @@ import { Repository } from '../../packages/forgeloop/lib/records/repository.js'
 import { Deployments } from '../../packages/forgeloop/lib/runtime/deployments.js'
 import { resolveConfig } from '../../packages/forgeloop/lib/config.js'
 
+import { requireVerificationContainer } from './verification-container.ts'
+
+requireVerificationContainer()
+
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROJECT = 'm1-interrupt'
 

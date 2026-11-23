@@ -14,6 +14,10 @@ import { request } from 'playwright-core'
 import { launch, terminate } from './platform.ts'
 import { createWorkspaceSession, ensureWorkspace, readBoard } from './web-rpc.ts'
 
+import { requireVerificationContainer, verificationCandidate } from './verification-container.ts'
+
+requireVerificationContainer()
+
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_E2E_PROFILE ?? 'forgeloop-e2e'
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
@@ -99,8 +103,9 @@ const env = { ...process.env, DSH_HOME: home, FORGELOOP_CONFIG: configPath }
 let child: ReturnType<typeof spawn> | undefined
 let exitCode = 0
 try {
+  const candidate = verificationCandidate(ROOT)
   dshSync(['--profile', PROFILE, '--from-default-profile', 'web', '--dump-config'], env)
-  dshSync(['plugin', '--profile', PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
+  dshSync(['plugin', '--profile', PROFILE, 'add', '--offline', candidate.path], env)
   const port = await freePort()
   const web = launch(DSH, ['--profile', PROFILE, '--port', String(port), '--no-open'])
   child = spawn(web.file, [...web.args], {
@@ -138,16 +143,23 @@ try {
       throw new Error('看板缺少 summary')
     }
     const tenantDir = join(recordsRoot, 'projects', expectedProject)
+    const dbPath = join(tenantDir, 'records.sqlite')
     const bindDeadline = Date.now() + 30_000
     while (Date.now() < bindDeadline) {
       const text = readFileSync(baseLog, 'utf8')
-      if (text.includes(`绑定项目 ${expectedProject}`) && existsSync(tenantDir)) break
+      if (text.includes(`绑定项目 ${expectedProject}`) && existsSync(dbPath)) break
       await new Promise((done) => setTimeout(done, 200))
     }
     if (!readFileSync(baseLog, 'utf8').includes(`绑定项目 ${expectedProject}`)) {
       throw new Error(`基础日志缺少工作区绑定记录：${expectedProject}`)
     }
-    if (!existsSync(tenantDir)) throw new Error(`租户记录目录未创建：${tenantDir}`)
+    if (!existsSync(dbPath)) throw new Error(`租户记录库未创建：${dbPath}`)
+    const reports = join(ROOT, 'reports')
+    mkdirSync(reports, { recursive: true })
+    writeFileSync(
+      join(reports, 'e2e-board.json'),
+      `${JSON.stringify({ candidateSha256: candidate.sha256, pid: child.pid, port, project: expectedProject, dbPath }, null, 2)}\n`,
+    )
     console.log(
       `[e2e-board] OK：看板返回 project=${expectedProject}，workspace.title=workspace-a，租户目录=${tenantDir}`,
     )

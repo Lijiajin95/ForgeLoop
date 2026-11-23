@@ -91,38 +91,26 @@ profile 配置核对。安装不删除业务库和证据；新方案丢弃旧业
 
 ## 8. 真实宿主验收环境
 
-[验证脚本](../../scripts/ts/verify-plugin.ts)读取 `FORGELOOP_DSH_HOME` 和 `FORGELOOP_PROFILE`，默认分别为
-`.cache/forgeloop/dsh-home` 与 `forgeloop`；只设置普通 `DSH_HOME` 不会覆盖脚本选择。
+真实宿主、模型、安装器和后台进程的自动化验收由 Linux Docker 容器执行。建议在 macOS 为验证使用专用 Colima profile。启动器直接连接该 profile 的本地套接字。
 
 ```sh
-export FORGELOOP_DSH_HOME="$PWD/.cache/forgeloop/dsh-home"
-export FORGELOOP_PROFILE="forgeloop"
-make verify-plugin
+brew install colima docker docker-buildx
+colima start --profile forgeloop-verify --runtime docker --vm-type vz --activate=false
+make e2e
 ```
 
-前提是该测试 home 中已准备 profile、安装包与可用模型认证；新 home 不自动继承正式配置。
-需要手动调用同一测试实例时，用 `DSH_HOME="$FORGELOOP_DSH_HOME" dsh --profile "$FORGELOOP_PROFILE" ...`。
-`make verify-plugin` 检查安装形态、组合层并真实调用模型工具。若目标 profile 含 DSH 工作区插件，
-脚本会直接失败并提示改用 `make verify-e2e`：CLI 会话没有工作区身份，工作区模式下工具会拒绝，
-不能拿“工具调用成功”当作安装可用。
+可用 `FORGELOOP_VERIFY_COLIMA_PROFILE` 指定另一个 Colima profile。Linux 和 Windows 使用本地 Linux Docker 引擎，Windows 执行同名 `make.cmd` 目标。构建镜像使用 Git 暂存索引中的源文件与锁文件。验证在途代码前应先按计划暂存。
 
-真实端到端主路径由 `make verify-e2e` 覆盖：它把候选 tarball 安装到隔离 `DSH_HOME` 的 web profile，
-启动 web 宿主，通过网关创建一个 DSH 工作区和一个 ForgeLoop 业务会话，把需求发到该会话；
-协调器自动完成分析、规划、研发、独立验证与受控提交。脚本按该会话身份轮询看板，
-核对 `ws-<工作区 id>` 租户、`workspace.title`、受控提交里确实包含需求要求的文件，否则失败。
-`make e2e-board` 是不依赖模型的看板路由冒烟：同样创建工作区与会话，校验租户键、工作区标题
-与租户记录目录。
+| 验收范围 | 命令 |
+| --- | --- |
+| DSH 装载与 Web 看板 | `make e2e` 或 `make e2e-board` |
+| M0 模拟模型闭环、种子安装、中断与恢复 | `make m0-loop-e2e`、`make m1-seed`、`make real-deploy-interrupt` |
+| 模型工具冒烟和候选包主路径 | `make verify-plugin`、`make verify-e2e` |
+| 真实模型研发、运维和自身需求交付 | `make real-model-e2e`、`make real-ops-e2e`、`make real-self-e2e` |
 
-```sh
-make package
-export DEEPSEEK_API_KEY=…
-FORGELOOP_CANDIDATE_TARBALL="$PWD/packages/forgeloop/dist/forgeloop-dsh-<version>.tgz" \
-  make verify-e2e
-```
+无模型用例在 `--network none` 下运行。真实模型用例需要专用的 `FORGELOOP_TEST_DEEPSEEK_API_KEY`，在指定场景也可用 `FORGELOOP_TEST_QWEN_TOKEN_PLAN_CN_API_KEY` 与测试补丁 `FORGELOOP_TEST_MODEL_PATCH`。真实模型容器接入内部网络，模型出站由限定模型服务器的代理转发。引擎无法提供隔离网络或缺少专用凭据时，该场景失败。 [Docker 验证方案](verification-environment.md#5-docker-验证)
 
-`make verify-e2e` 缺少 `DEEPSEEK_API_KEY` 或候选 tarball 时直接失败，不跳过；默认最多等待
-15 分钟（`FORGELOOP_E2E_TIMEOUT_MS`）。这些检查覆盖宿主接缝与真实业务主路径，但仍不能
-代替统一方案要求的正式环境人工验收。
+候选包可通过 `FORGELOOP_CANDIDATE_TARBALL` 指定，启动器复制并只读挂载，再在容器内核对摘要。省略时使用镜像从暂存快照构建的包。发布门禁显式传入上游产生的候选包。验收证据保存在 `reports/docker-verification/<运行标识>/`。 [验证启动器](../../scripts/ts/docker-verify.ts)
 
 ## 9. 已知限制
 
@@ -131,9 +119,9 @@ FORGELOOP_CANDIDATE_TARBALL="$PWD/packages/forgeloop/dist/forgeloop-dsh-<version
 - 插件卸载会停止协调器并请求取消在途 Agent；重启后未收口请求需核对，不能把卸载成功等同于副作用已清理。
 - 旧 Python、独立 HTTP 服务及旧 `forgeloop` CLI 不参与当前安装与恢复。
 
-## 10. 独立测试环境
+## 10. 手动独立环境
 
-测试环境必须与正式环境分开，不能只靠 `--patch` 覆盖同一个 `DSH_HOME`：
+自动验收使用 §8。手动调试时，测试环境必须与正式环境分开，不能只靠 `--patch` 覆盖同一个 `DSH_HOME`：
 
 - 独立 `DSH_HOME`（例如 `~/.dsh-forgeloop-test`），从而分开 sessions、storages 与凭据文件；
 - 独立 profile（例如 `forgeloop-test`），单独安装候选包；

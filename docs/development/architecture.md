@@ -725,6 +725,8 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   `node:sqlite`。参考源码版本见 ADR 0008。
 - 插件以 npm bundle 发布：`dsh.bundle.patch` 插入 `forgeloop-dsh` 行；`engines.dsh` 限定范围。
 
+自动化真实宿主验收从 [Docker 启动器](../../scripts/ts/docker-verify.ts) 执行。镜像固定 Linux 工具链，宿主只提供 Git 暂存快照、可选的只读候选包和专用测试输入。测试 DSH、工作区、SQLite、安装器和 Web 客户端都在容器内运行。无模型场景使用无网络模式。模型场景仅通过隔离网络中的代理访问登记的模型域名。结果从容器导出到 `reports/docker-verification/`。生产上线的只读核对见[安装后检查](deployment.md#6-安装后检查)。
+
 ### 8.1 配置来源
 
 - 业务配置存放在 ForgeLoop 自己的文件：默认 `~/.forgeloop/config.json`，可用

@@ -7,8 +7,6 @@
  *  S2 真实进程故障 → 运维巡检 → 诊断 → 授权内恢复 → 检查复核 recovered
  *  S3 同一事件 fix_required → 关联修复需求 → 研发/验证/提交 → 重新构建 → 再次部署成功
  *  M0-4 负例：非所有者批准被拒、模型工具面没有部署/批准入口、越界文件被拒
- *  可选真实制品 leg：FORGELOOP_M0_REAL_ARTIFACT=1 时，只读复制生产记录，用真实需求
- *  req-20261031080821-f940b9 的候选制品走新部署接口到隔离目标（生产库只读）。
  *
  * 说明：研发/验证/诊断由脚本化 Agent 替身驱动；Git、构建、部署工具、运维检查与恢复
  * 命令都是真实执行。真实模型 leg 需 `FORGELOOP_M0_LOOP_REAL_MODEL=1`，本脚本不替代它。
@@ -18,12 +16,15 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
-import { DatabaseSync } from 'node:sqlite'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ForgeLoopRuntime } from '../../packages/forgeloop/lib/runtime/service.js'
 import { resolveConfig } from '../../packages/forgeloop/lib/config.js'
+
+import { requireVerificationContainer } from './verification-container.ts'
+
+requireVerificationContainer()
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const KEEP = process.argv.includes('--keep')
@@ -115,7 +116,7 @@ function writeDeploymentTool(recordsRoot: string): string {
   writeFileSync(
     path,
     [
-      'import json, os, sys',
+      'import datetime, json, os, sys',
       'args = sys.argv',
       'op = args[args.index("--op") + 1]',
       'plan = json.load(open(args[args.index("--plan") + 1]))',
@@ -134,7 +135,7 @@ function writeDeploymentTool(recordsRoot: string): string {
       '    old = read(current)',
       '    if old is not None:',
       '        json.dump(old, open(previous, "w"))',
-      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-05T10:00:00Z"}, open(current, "w"))',
+      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, open(current, "w"))',
       '    print(json.dumps({"ok": True, "state": "applied", "version": plan["artifact"]["version"], "detail": "applied"}))',
       'elif op == "status":',
       '    now = read(current) or {}',
@@ -146,66 +147,6 @@ function writeDeploymentTool(recordsRoot: string): string {
       '    else:',
       '        json.dump(old, open(current, "w"))',
       '        print(json.dumps({"ok": True, "state": "rolled_back", "version": old.get("version", ""), "detail": "rolled back"}))',
-      'elif op == "data-rollback":',
-      '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
-      'else:',
-      '    print(json.dumps({"ok": False, "state": "failed", "detail": "unknown op"}))',
-    ].join('\n'),
-  )
-  return path
-}
-
-function writeRealArtifactTool(recordsRoot: string): string {
-  const toolDir = join(recordsRoot, 'projects', 'forgeloop', 'deployments', 'tools')
-  mkdirSync(toolDir, { recursive: true })
-  const path = join(toolDir, 'install.py')
-  writeFileSync(
-    path,
-    [
-      'import json, os, shutil, sys, tarfile, tempfile',
-      'args = sys.argv',
-      'op = args[args.index("--op") + 1]',
-      'plan = json.load(open(args[args.index("--plan") + 1]))',
-      'target = plan["params"]["target"]',
-      'module = os.path.join(target, "node_modules", "forgeloop-dsh")',
-      'current = os.path.join(target, "install.json")',
-      'previous = os.path.join(target, "previous-install")',
-      'os.makedirs(target, exist_ok=True)',
-      'def read(path):',
-      '    try:',
-      '        return json.load(open(path))',
-      '    except Exception:',
-      '        return None',
-      'def installed_version():',
-      '    try:',
-      '        return json.load(open(os.path.join(module, "package.json"))).get("version", "")',
-      '    except Exception:',
-      '        return ""',
-      'if op == "preflight":',
-      '    print(json.dumps({"ok": True, "state": "ready", "detail": "preflight ok", "restorePoint": "previous-1" if os.path.exists(current) else ""}))',
-      'elif op == "apply":',
-      '    if os.path.exists(module):',
-      '        shutil.rmtree(previous, ignore_errors=True)',
-      '        shutil.copytree(module, previous)',
-      '    shutil.rmtree(module, ignore_errors=True)',
-      '    os.makedirs(module)',
-      '    extract = tempfile.mkdtemp(dir=target)',
-      '    with tarfile.open(plan["artifact"]["path"]) as tar:',
-      '        tar.extractall(extract)',
-      '    shutil.copytree(os.path.join(extract, "package"), module, dirs_exist_ok=True)',
-      '    shutil.rmtree(extract, ignore_errors=True)',
-      '    json.dump({"version": plan["artifact"]["version"], "artifactSha256": plan["artifact"]["sha256"], "runningArtifactSha256": plan["artifact"]["sha256"], "runningPid": os.getpid(), "runningStartedAt": "2026-11-05T10:00:00Z"}, open(current, "w"))',
-      '    print(json.dumps({"ok": True, "state": "applied", "version": installed_version(), "detail": "installed into profile"}))',
-      'elif op == "status":',
-      '    now = read(current) or {}',
-      '    print(json.dumps({"ok": True, "state": "running", "version": installed_version(), "artifactSha256": now.get("artifactSha256", ""), "runningArtifactSha256": now.get("runningArtifactSha256", ""), "runningPid": os.getpid(), "runningStartedAt": now.get("runningStartedAt", ""), "detail": "profile status"}))',
-      'elif op == "rollback":',
-      '    if not os.path.isdir(previous):',
-      '        print(json.dumps({"ok": False, "state": "failed", "detail": "no previous profile"}))',
-      '    else:',
-      '        shutil.rmtree(module, ignore_errors=True)',
-      '        shutil.copytree(previous, module)',
-      '        print(json.dumps({"ok": True, "state": "rolled_back", "version": installed_version(), "detail": "profile rolled back"}))',
       'elif op == "data-rollback":',
       '    print(json.dumps({"ok": True, "state": "rolled_back", "detail": "no data scope"}))',
       'else:',
@@ -256,7 +197,7 @@ const ANALYSIS = JSON.stringify({
     {
       id: 'BP-1',
       basis: 'user_requirement',
-      source: 'M0 需求原文',
+      source: 'M0 闭环：写一份可验证的文档并部署到受控目标',
       actor: '业务用户',
       trigger: '检查文档时',
       behavior: 'docs/a.txt 与 docs/b.txt 存在且可读',
@@ -266,6 +207,28 @@ const ANALYSIS = JSON.stringify({
   ],
   assumptions: [],
 })
+
+function requirementTextFromPrompt(prompt: string): string {
+  const marker = /### 版本 (\d+)（[^）]*）\n/g
+  let last = -1
+  let match: RegExpExecArray | null
+  while ((match = marker.exec(prompt)) !== null) last = match.index
+  if (last < 0) return ''
+  const after = prompt.slice(last)
+  const start = after.indexOf('\n') + 1
+  const end = after.indexOf('\n\n', start)
+  return (end >= 0 ? after.slice(start, end) : after.slice(start)).trim()
+}
+
+function analysisFor(prompt: string): string {
+  const text = requirementTextFromPrompt(prompt)
+  if (!text) throw new Error('分析提示词缺少当前需求版本原文')
+  const data = JSON.parse(ANALYSIS) as {
+    business_points: Array<Record<string, unknown>>
+  }
+  data.business_points = data.business_points.map((point) => ({ ...point, source: text }))
+  return JSON.stringify(data)
+}
 
 const PLAN = JSON.stringify({
   technical_solution: {
@@ -306,7 +269,7 @@ let verificationFails = false
 
 function verificationPlan(): string {
   const check = verificationFails
-    ? "const fs=require('node:fs');console.log('broken');process.exit(1)"
+    ? "console.log('AssertionError: expected docs/a.txt to exist');process.exit(1)"
     : "const fs=require('node:fs');if(fs.existsSync('docs/a.txt')&&fs.existsSync('docs/b.txt')){console.log('verified ok');process.exit(0)}console.log('broken');process.exit(1)"
   return JSON.stringify({
     scenarios: [
@@ -336,6 +299,14 @@ const BUSINESS_REVIEW = JSON.stringify({
   summary: '业务场景通过',
   findings: [],
   blocking: [],
+  points: [
+    {
+      id: 'BP-1',
+      status: 'pass',
+      evidence: 'verified ok',
+      commands: ['smoke', 'smoke-negative'],
+    },
+  ],
   scenarios: [
     {
       scenario: '文档存在且可读',
@@ -449,7 +420,7 @@ function fakeRunner(options: RunnerOptions): unknown {
         durationMs: 1,
         toolCalls: [],
       })
-      if (request.role === 'product') return reply(ANALYSIS)
+      if (request.role === 'product') return reply(analysisFor(request.prompt))
       if (request.role === 'ops') return reply(options.opsDiagnosis())
       if (request.role === 'orchestrator') {
         return reply(JSON.stringify({ session_id: null, reason: 'm0-loop' }))
@@ -604,125 +575,6 @@ async function deliver(
     `研发/验证未完成：${JSON.stringify(advance)}`,
   )
   return { config, runtime }
-}
-
-/**
- * 真实制品 leg：从生产记录只读复制一份记录，用真实需求 req-20261031080821-f940b9 的
- * 提交、验证、业务终审与候选制品，走新部署接口到隔离目标。生产库只读（VACUUM INTO），
- * owner 决定只写入副本；不触碰正式 profile 与生产记录。
- */
-async function runRealArtifactLeg(root: string): Promise<void> {
-  if (process.env.FORGELOOP_M0_REAL_ARTIFACT !== '1') {
-    summary.realArtifact = { skipped: 'FORGELOOP_M0_REAL_ARTIFACT!=1' }
-    return
-  }
-  const prodDb = join(
-    homedir(),
-    '.forgeloop',
-    'production',
-    'projects',
-    'forgeloop',
-    'records.sqlite',
-  )
-  if (!existsSync(prodDb)) {
-    summary.realArtifact = { skipped: `生产记录不存在：${prodDb}` }
-    return
-  }
-  const reqId = 'req-20261031080821-f940b9'
-  const owner = 'link'
-  const recordsRoot = join(root, 'real-records')
-  const targetDir = join(root, 'dsh-home', 'profiles', 'm0-real-target')
-  mkdirSync(join(recordsRoot, 'projects', 'forgeloop'), { recursive: true })
-  mkdirSync(targetDir, { recursive: true })
-  const copyPath = join(recordsRoot, 'projects', 'forgeloop', 'records.sqlite')
-  const source = new DatabaseSync(prodDb, { readOnly: true })
-  try {
-    source.exec(`VACUUM INTO '${copyPath.replaceAll("'", "''")}'`)
-  } finally {
-    source.close()
-  }
-  const toolPath = writeRealArtifactTool(recordsRoot)
-  const config = resolveConfig(
-    {
-      project: 'forgeloop',
-      projectPath: ROOT,
-      recordsRoot,
-      owner,
-      pollSeconds: 3600,
-      agent: { provider: 'fake', model: 'fake', timeoutSeconds: 30 },
-      deployments: {
-        enabled: true,
-        alerts: { webhook: '', timeoutSeconds: 10 },
-        tools: [
-          {
-            id: 'm0-real-tool',
-            kind: 'python',
-            path: toolPath,
-            capabilities: ['preflight', 'apply', 'status', 'rollback', 'data-rollback'],
-            timeoutSeconds: 60,
-          },
-        ],
-        targets: [
-          {
-            id: 'm0-real-target',
-            toolId: 'm0-real-tool',
-            requirementId: '',
-            approval: 'owner',
-            params: { target: targetDir },
-            rollback: { keep: 1 },
-          },
-        ],
-      },
-    },
-    ROOT,
-  )
-  const local = new ForgeLoopRuntime({
-    ctx: {},
-    config,
-    runner: {
-      async run() {
-        throw new Error('真实制品 leg 不需要 Agent')
-      },
-      async open() {
-        throw new Error('真实制品 leg 不需要 Agent')
-      },
-    },
-  })
-  try {
-    const build = local.repo.latestCandidateBuild(reqId)
-    check(build !== null, '真实需求没有候选构建记录')
-    check(build?.artifactSha256.startsWith('f3eeee74') === true, '真实制品摘要与生产记录不一致')
-    const accepted = local.accept({ reqId, by: owner, source: 'm0-loop:real-artifact-accept' })
-    check(accepted.ok, `真实需求验收副本失败：${accepted.message}`)
-    const requested = await local.deploymentService.request({
-      targetId: 'm0-real-target',
-      requirementId: reqId,
-      by: owner,
-      source: 'm0-loop:real-artifact',
-    })
-    check(requested.ok, `真实制品部署提议失败：${requested.message}`)
-    const intentId = (requested.data as { intentId: string }).intentId
-    const denied = await local.deploymentService.approve({ intentId, by: 'not-owner' })
-    check(denied.ok === false && denied.code === 'forbidden', '真实制品：非所有者批准未被拒绝')
-    const approved = await local.deploymentService.approve({ intentId, by: owner })
-    check(approved.ok, `真实制品部署批准失败：${approved.message}`)
-    const verified = await local.deploymentService.verify({ intentId, by: owner })
-    check(verified.ok, `真实制品部署核对失败：${verified.message}`)
-    const installed = JSON.parse(readFileSync(join(targetDir, 'install.json'), 'utf8'))
-    check(installed.version === build!.packageVersion, '真实制品安装版本与构建记录不一致')
-    check(installed.artifactSha256 === build!.artifactSha256, '真实制品安装摘要与构建记录不一致')
-    summary.realArtifact = {
-      reqId,
-      commitSha: local.repo.latestCommit(reqId)?.commitSha ?? '',
-      artifact: build!.artifactSha256,
-      intentId,
-      verified: true,
-      rollout: local.deploymentService.rollout(intentId),
-    }
-    console.log(`[m0-loop] 真实制品 leg 完成：${reqId} -> ${intentId}`)
-  } finally {
-    local.close()
-  }
 }
 
 async function main(): Promise<void> {
@@ -911,10 +763,8 @@ async function main(): Promise<void> {
     check(runtime.repo.latestCommit(limitReqId) === null, '限额测试不应产生受控提交')
     // 问题单仍开放时协调器会再排 advance（这是既有的跨请求重试语义）；
     // 本轮只证明正数上限让当前执行停下并置 blocked，不宣称跨请求总次数封顶。
-    check(
-      (runtime.repo.getRequirement(limitReqId)?.blockedReason ?? '').includes('问题单'),
-      '限额用尽后没有留下问题单说明',
-    )
+    const limitReason = runtime.repo.getRequirement(limitReqId)?.blockedReason ?? ''
+    check(limitReason.includes('问题单'), `限额用尽后没有留下问题单说明：${limitReason}`)
     verificationFails = false
     runtime.close()
     runtime = null
@@ -960,8 +810,6 @@ async function main(): Promise<void> {
     }
     check(boundaryRejected, '越界文件计划没有被拒绝')
 
-    await runRealArtifactLeg(root)
-
     summary.s1Rollout = runtime.deploymentService.rollout(intentId)
     const snapshot = configFor(project, recordsRoot, root) as {
       deployments: unknown
@@ -988,6 +836,7 @@ async function main(): Promise<void> {
         resumed: 'committed',
         limitReqId,
         limit: 'maxVerificationAttempts=1 -> blocked',
+        limitReason,
       },
       s2: { eventId, state: event?.state, recoveredPid },
       s3: { fixReqId, fixCommit: fixCommit?.commitSha ?? '', fixIntent: fixIntent?.intentId ?? '' },
@@ -1030,12 +879,6 @@ async function main(): Promise<void> {
       writeFileSync(
         join(EVIDENCE_DIR, 's3-rollout.json'),
         `${JSON.stringify(summary.s3Rollout, null, 2)}\n`,
-      )
-    }
-    if (summary.realArtifact) {
-      writeFileSync(
-        join(EVIDENCE_DIR, 'real-artifact.json'),
-        `${JSON.stringify(summary.realArtifact, null, 2)}\n`,
       )
     }
     if (!KEEP) rmSync(root, { recursive: true, force: true })

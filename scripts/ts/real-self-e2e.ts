@@ -33,6 +33,10 @@ import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { launch, npmLaunch, terminate, type Launch } from './platform.ts'
 
+import { requireVerificationContainer } from './verification-container.ts'
+
+requireVerificationContainer()
+
 const ROOT = resolve(import.meta.dirname, '../..')
 /** 目标安装器必须能启动真实宿主：用当前 node 执行 dsh 的 CLI 入口。 */
 const DSH_CLI = process.env.FORGELOOP_DSH_CLI?.trim() ?? ''
@@ -584,10 +588,13 @@ function installProfile(
       `初始化 profile ${profile} 失败：${(created.stderr || created.stdout).slice(-800)}`,
     )
   }
-  const added = runLaunched(dshCommand(['plugin', '--profile', profile, 'add', tarball]), {
-    cwd: ROOT,
-    env,
-  })
+  const added = runLaunched(
+    dshCommand(['plugin', '--profile', profile, 'add', '--offline', tarball]),
+    {
+      cwd: ROOT,
+      env,
+    },
+  )
   if (added.code !== 0) {
     throw new Error(`安装插件到 ${profile} 失败：${(added.stderr || added.stdout).slice(-800)}`)
   }
@@ -1070,7 +1077,7 @@ function installerSource(paths: Paths): string {
     '        raise RuntimeError("制品不存在：" + tarball)',
     '    digest = sha256(tarball)',
     '    ensure_profile()',
-    '    run_cli(["plugin", "--profile", TARGET_PROFILE, "add", tarball])',
+    '    run_cli(["plugin", "--profile", TARGET_PROFILE, "add", "--offline", tarball])',
     '    if not os.path.isdir(installed):',
     '        raise RuntimeError("安装后没有找到插件包目录：" + installed)',
     '    if os.path.islink(installed):',
@@ -1997,6 +2004,9 @@ async function main(): Promise<void> {
     summary.targetHostStopped = true
     const keep = failures.length > 0 || KEEP
     summary.failures = failures
+    const reports = join(ROOT, 'reports')
+    mkdirSync(reports, { recursive: true })
+    writeFileSync(join(reports, 'real-self-e2e.json'), `${JSON.stringify(summary, null, 2)}\n`)
     if (keep) {
       summary.kept = true
       writeSummary(paths, summary)

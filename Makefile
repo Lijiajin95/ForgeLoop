@@ -8,6 +8,8 @@ NPM := env npm_config_cache=$(CURDIR)/.cache/npm npm
 PKG := packages/forgeloop
 NODE := node
 CONTRACTS := $(NODE) scripts/ts/contracts.ts
+DOCKER_VERIFY_TARGETS := e2e e2e-board verify-plugin verify-e2e m0-loop-e2e m1-seed \
+	real-deploy-interrupt real-model-e2e real-ops-e2e real-self-e2e
 
 # 变异测试是可选门禁：默认不跑，避免日常/快速检查被全量变异拖住。
 # 开启方式（任选其一）：make check MUTATION=1，或在机器上 export FORGELOOP_MUTATION=1。
@@ -17,7 +19,7 @@ MUTATION_ENABLED := $(filter 1,$(MUTATION))
 
 .PHONY: setup hooks build typecheck test check commit-check check-static lint format contracts budget assertions sbom \
 	architecture-contract architecture-contract-check \
-	precommit verify-plugin verify-e2e web-auth web-smoke package m0-loop-e2e worktree-start \
+	precommit web-auth web-smoke package worktree-start $(DOCKER_VERIFY_TARGETS) \
 	coverage mutation mutation-shard mutation-merge mutation-incremental audit security help \
 	reliability-report reliability-report-fast reliability-registry stability reliability-advanced
 
@@ -37,10 +39,11 @@ help:
 	@echo "make worktree-merge BRANCH=... 快进合并并清理 worktree/分支"
 	@echo "make budget                Agent 上下文 token 预算（文件 25k）"
 	@echo "make assertions            类型断言预算（只减不增）"
-	@echo "make e2e                   宿主装载 E2E（不依赖模型）"
+	@echo "make e2e                   Docker 内的 DSH 装载与 Web E2E（不依赖模型）"
 	@echo "make real-model-e2e        真实模型闭环 E2E（opt-in，会产生模型费用）"
-	@echo "make verify-plugin         在隔离 DSH_HOME 中装载插件并调用工具（需模型凭据）"
-	@echo "make verify-e2e            候选包安装到隔离宿主后跑真实模型端到端主路径（需模型凭据）"
+	@echo "make verify-plugin         Docker 内的真实模型工具冒烟（需测试凭据）"
+	@echo "make verify-e2e            Docker 内的候选包真实模型端到端验证（需测试凭据）"
+	@echo "Docker 验收目标           $(DOCKER_VERIFY_TARGETS)"
 	@echo "make m0-loop-e2e           M0 全链路脚本化闭环（真实 Git/构建/部署工具/运维命令，无模型）"
 	@echo "make lint                  ESLint（类型感知，src；tests/scripts 无类型规则）"
 	@echo "make format                检查 Prettier 格式（make format-write 写入）"
@@ -131,14 +134,8 @@ sbom:
 package: build
 	$(NPM) run candidate --workspace forgeloop-dsh
 
-# 真实宿主装载冒烟：需要 FORGELOOP_DSH_HOME 与模型凭据（见 docs/development/deployment.md）。
-verify-plugin:
-	$(NODE) scripts/ts/verify-plugin.ts
-
-# 真实宿主端到端主路径：隔离 DSH_HOME + 安装候选 tarball + 真实模型 + 实际工具。
-# 需要模型凭据；缺少凭据直接失败，不降级为跳过。
-verify-e2e:
-	$(NODE) scripts/ts/verify-e2e.ts
+$(DOCKER_VERIFY_TARGETS):
+	$(NODE) scripts/ts/docker-verify.ts $@
 
 # 本机 Web 浏览器凭据：从 DSH 持久化 browser-session 密钥派生签名 Cookie。
 # 只写 .cache/web-auth（0600），用于部署后的页面只读核对。
@@ -150,25 +147,6 @@ web-auth:
 
 web-smoke: web-auth
 	$(NODE) scripts/ts/web-ui-smoke.ts $(if $(filter 1,$(REQUIRE_SOURCE_MATCH)),--require-source-match,)
-
-# 宿主装载 E2E（不依赖模型）：构建 → 隔离 profile 安装 → dump-config/plugin list 校验。
-e2e:
-	$(NODE) scripts/ts/e2e.ts
-	$(NODE) scripts/ts/e2e-board.ts
-
-# 真实模型闭环 E2E（opt-in）：提交 → 准入 → 研发 → 独立验证 → 受控提交。
-# 需要启动环境导出模型密钥；派生 profile 默认用官方模板模型，设置
-# FORGELOOP_REAL_MODEL_PATCH=<patch.yml> 可改走其它 provider（如 Qwen Token Plan）。
-real-model-e2e:
-	FORGELOOP_REAL_MODEL=1 $(NODE) scripts/ts/real-model-e2e.ts
-
-# M0 全链路闭环：脚本化 Agent + 真实 Git/构建部署工具/运维检查与恢复。
-# 依赖编译后的 lib；不使用模型，真实模型 leg 由 FORGELOOP_M0_LOOP_REAL_MODEL 另行验证。
-real-ops-e2e:
-	$(NODE) scripts/ts/real-ops-e2e.ts
-
-m0-loop-e2e: build
-	$(NODE) scripts/ts/m0-loop-e2e.ts
 
 coverage:
 	$(NPM) run coverage --workspace forgeloop-dsh

@@ -21,6 +21,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { ForgeLoopRuntime } from '../../packages/forgeloop/lib/runtime/service.js'
 import { resolveConfig } from '../../packages/forgeloop/lib/config.js'
 
+import { requireVerificationContainer } from './verification-container.ts'
+
+requireVerificationContainer()
+
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = process.env.FORGELOOP_REAL_MODEL_PROFILE ?? 'forgeloop-real-model'
 const WEB_PROFILE = `${PROFILE}-web`
@@ -647,8 +651,21 @@ async function main(): Promise<void> {
       ['--profile', HEADLESS_PROFILE, '--from-default-profile', 'headless', '--dump-config'],
       env,
     )
-    dshSync(['plugin', '--profile', WEB_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
-    dshSync(['plugin', '--profile', HEADLESS_PROFILE, 'add', join(ROOT, 'packages/forgeloop')], env)
+    dshSync(
+      ['plugin', '--profile', WEB_PROFILE, 'add', '--offline', join(ROOT, 'packages/forgeloop')],
+      env,
+    )
+    dshSync(
+      [
+        'plugin',
+        '--profile',
+        HEADLESS_PROFILE,
+        'add',
+        '--offline',
+        join(ROOT, 'packages/forgeloop'),
+      ],
+      env,
+    )
     const port = await freePort()
     const [webCommand, webArgs] = dshCommand(
       launchArgs(WEB_PROFILE, ['--port', String(port), '--no-open']),
@@ -711,23 +728,30 @@ async function main(): Promise<void> {
     )
     if (!DEPLOY && summary.deployments !== 0) throw new Error('研发链路不应产生部署记录')
 
+    let deployment: { intentId: string; artifact: string } | null = null
     if (DEPLOY) {
       if (!deploy) throw new Error('部署现场没有初始化')
       if (child) {
         await stopChild(child)
         child = undefined
       }
-      const deployed = await deployCommitted({
+      deployment = await deployCommitted({
         reqId: requirement.req_id,
         projectDir,
         recordsRoot,
         deploy,
       })
       console.log(
-        `[real-model-e2e] 部署 OK：${deployed.intentId}；制品 ${deployed.artifact.slice(0, 12)}`,
+        `[real-model-e2e] 部署 OK：${deployment.intentId}；制品 ${deployment.artifact.slice(0, 12)}`,
       )
     }
 
+    const reports = join(ROOT, 'reports')
+    mkdirSync(reports, { recursive: true })
+    writeFileSync(
+      join(reports, 'real-model-e2e.json'),
+      `${JSON.stringify({ requirement, summary, deployment }, null, 2)}\n`,
+    )
     console.log(`[real-model-e2e] OK：${requirement.req_id} 完成准入、研发、验证与受控提交`)
     console.log(
       `[real-model-e2e] 记录：${dbPath}；项目：${projectDir}（默认在脚本结束时删除，FORGELOOP_REAL_MODEL_KEEP=1 保留）`,

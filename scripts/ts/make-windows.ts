@@ -13,6 +13,7 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { launch, npmLaunch } from './platform.ts'
+import { isVerificationTarget, VERIFICATION_TARGETS } from './verification-container.ts'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const PKG = join(ROOT, 'packages', 'forgeloop')
@@ -185,17 +186,6 @@ const targets: Record<string, Step> = {
       'packages/forgeloop/{src,tests}/**/*.ts',
       'scripts/ts/**/*.ts',
     ]),
-  'verify-plugin': () => node('verify-plugin.ts'),
-  'verify-e2e': () => node('verify-e2e.ts'),
-  e2e: () => {
-    node('e2e.ts')
-    node('e2e-board.ts')
-  },
-  'real-model-e2e': () => run(process.execPath, [join(ROOT, 'scripts', 'ts', 'real-model-e2e.ts')]),
-  'm0-loop-e2e': () => {
-    npmWorkspace('build')()
-    node('m0-loop-e2e.ts')
-  },
   'reliability-report': () => node('reliability-report.ts'),
   'reliability-report-fast': () => node('reliability-report.ts', ['--fast']),
   stability: () => node('stability.ts'),
@@ -227,7 +217,7 @@ function help(): void {
   make.cmd mutation|mutation-shard SHARD=...|mutation-merge [SHARDS=...]
   make.cmd mutation-incremental [SCOPE=incremental|controlled] [BASE=<ref>]
   make.cmd reliability-report|reliability-report-fast|reliability-advanced|stability
-  make.cmd verify-plugin|verify-e2e|e2e|real-model-e2e|m0-loop-e2e
+  Docker 验收目标：${Object.keys(VERIFICATION_TARGETS).join('、')}
   make.cmd worktree-start TASK=<task> [BRANCH=<branch>]
   make.cmd worktree-merge BRANCH=<branch>
   make.cmd audit|security`)
@@ -247,13 +237,13 @@ for (const argument of args) {
   }
 }
 
-if (target === 'real-model-e2e') env.FORGELOOP_REAL_MODEL = '1'
-
 if (!target || target === 'help') {
   help()
   process.exit(0)
 }
-const step = targets[target]
+const step = isVerificationTarget(target)
+  ? () => node('docker-verify.ts', [target])
+  : targets[target]
 if (!step) {
   console.error(`[make] 未知目标：${target}`)
   help()
