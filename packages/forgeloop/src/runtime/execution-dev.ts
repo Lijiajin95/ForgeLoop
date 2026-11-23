@@ -155,7 +155,11 @@ export class ExecutionDev {
     let lastError = ''
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const result = await input.session.send({
-        prompt: devPlanningPrompt(input.requirement, input.analysis, { tools: 'read' }) + feedback,
+        prompt:
+          devPlanningPrompt(input.requirement, input.analysis, {
+            tools: 'read',
+            engineeringFacts: this.deps.config.engineeringFacts,
+          }) + feedback,
         timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
         transcriptPath: join(
           sessionsDir(this.deps.config),
