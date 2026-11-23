@@ -155,7 +155,7 @@ describe('P0 boundary and failure scenarios', () => {
         activeRequest: false,
         runningTasks: 0,
         awaitingInputTasks: 0,
-        planApproved: true,
+        authorized: true,
         delivered: 0,
         total: 1,
       }),
@@ -282,7 +282,7 @@ describe('P0 boundary and failure scenarios', () => {
       activeRequest: false,
       runningTasks: 0,
       awaitingInputTasks: 0,
-      planApproved: true,
+      authorized: true,
       delivered: 0,
       total: 2,
     })

@@ -10173,3 +10173,20 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 发现但不碰：Windows 全量跑不动的原因（与其他会话并发、覆盖率临时目录写入停止后进程不退出）
 需要单独排查；本批没有修改任何超时门槛或跳过用例。
+
+## 275. 统一执行授权模型（2026-11-23）
+
+来源：旧显式批准路径与连续路径各自判定授权，导致有系统准入的需求在服务端可以推进、看板却不显示
+「推进/独立测试」，人工无法从界面进入下一阶段。
+
+- 新增 `domain/authorization.ts`：`resolveRequirementAuthorization` 把「所有者任务包批准」与
+  「系统准入」判定为同一授权的两个来源（`owner-approval` / `system-admission`），并给出
+  `authorized`/`missing`/`stale`、绑定版本与 `authorizationSource`。
+- 服务端：`requestOperation('advance'/'verify')`、`requireAuthorizedPlan`（候选与验证流水线共用）
+  改用该判定；任务级重试与 `retryDecision` 的事实字段由 `planApproved` 改为 `authorized`。
+- 看板：动作门禁改用统一判定；`approval` 增加 `admitted`（系统准入），有准入的 `specified` /
+  `plan_proposed` 需求显示「推进」，不再显示「批准」；前端补对应文案。
+- 边界未变：人工批准仍要求实现前评审 `pass` 且版本绑定；模型工具仍不能批准、推进或验收；
+  系统准入仍绑定需求版本，版本变化后判定为 `stale`。
+- 测试：`authorization.test.ts` 覆盖两来源、版本过期、准入拒绝与缺失；看板新增「准入需求显示推进」
+  「已授权不显示批准」「人工批准标签保持」三例；`retry-policy` 与性质测试同步字段改名。

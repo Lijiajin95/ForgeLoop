@@ -420,7 +420,10 @@ beforeEach(() => {
     source: 'test',
   }
   remainingRounds = 3
-  authorizedPlanResult = { ok: true, value: { plan: planOf() } }
+  authorizedPlanResult = {
+    ok: true,
+    value: { plan: planOf(), authorizationSource: 'plan-approval:req-1:v1:owner' },
+  }
   plan = planOf()
   latestPlan = plan
   planOutcome = { ok: true, plan }

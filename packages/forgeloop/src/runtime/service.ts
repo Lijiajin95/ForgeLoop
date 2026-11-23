@@ -13,6 +13,10 @@ import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import { writeBackClarificationAnswers } from './library-writeback.js'
 import { type Requirement, type RequirementAnalysis } from '../domain/requirement.js'
 import {
+  resolveRequirementAuthorization,
+  type RequirementAuthorizationView,
+} from '../domain/authorization.js'
+import {
   authorizationSourceOf,
   authorizePlan,
   bindAuthorization,
@@ -712,25 +716,26 @@ ${answer}`
     requirement: Requirement,
   ): { ok: true; planVersion: number } | { ok: false; result: OperationResult } {
     const latestPlan = this.repo.latestTaskPlan(input.reqId)
-    const admission = this.currentAdmission(input.reqId)
-    const legacyApproval = latestPlan
-      ? this.repo.planApproval(input.reqId, latestPlan.planVersion)
-      : null
-    if (!admission && !legacyApproval) {
-      return {
-        ok: false,
-        result: fail(
-          'admission_required',
-          `需求 ${input.reqId} 尚未获得系统准入或人类批准；不能自动进入研发`,
-        ),
-      }
-    }
     if (latestPlan && latestPlan.requirementVersion !== requirement.versions.length) {
       return {
         ok: false,
         result: fail(
           'stale_requirement',
           `任务包 v${latestPlan.planVersion} 依据需求 v${latestPlan.requirementVersion}，当前是 ${requirement.versions.length}；需要重新生成任务包`,
+        ),
+      }
+    }
+    const authorization = this.requirementAuthorization(input.reqId)
+    if (authorization.status !== 'authorized') {
+      const message =
+        authorization.status === 'stale'
+          ? `需求 ${input.reqId} 的授权已过期：${authorization.reason}`
+          : `需求 ${input.reqId} 尚未获得系统准入或人类批准；不能自动进入研发`
+      return {
+        ok: false,
+        result: fail(
+          authorization.status === 'stale' ? 'authorization_stale' : 'admission_required',
+          message,
         ),
       }
     }
@@ -872,9 +877,7 @@ ${answer}`
       ),
       runningTasks: runs.filter((run) => run.state === TASK_RUN_RUNNING).length,
       awaitingInputTasks: runs.filter((run) => run.state === TASK_RUN_AWAITING_USER).length,
-      planApproved:
-        plan !== null &&
-        authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion)).status === 'approved',
+      authorized: this.requirementAuthorization(reqId).status === 'authorized',
       delivered,
       total: plan?.tasks.length ?? 0,
     })
@@ -954,12 +957,12 @@ ${answer}`
         message: `任务包 v${plan.planVersion} 依据需求 v${plan.requirementVersion}，当前是 v${requirement.versions.length}；需重新规划与批准`,
       }
     }
-    const authorization = authorizePlan(plan, this.repo.planApproval(reqId, plan.planVersion))
-    if (authorization.status !== 'approved') {
+    const authorization = this.requirementAuthorization(reqId)
+    if (authorization.status !== 'authorized') {
       return {
         ok: false,
         code: 'plan_not_approved',
-        message: `${authorization.reason}；任务包尚未获得批准`,
+        message: `任务包尚未获得授权：${authorization.reason}`,
       }
     }
     const task = plan.tasks.find((candidate) => candidate.taskId === taskId)
@@ -1057,6 +1060,23 @@ ${answer}`
     if (!requirement) return null
     const admission = this.repo.latestAdmission(reqId, requirement.versions.length)
     return admission?.decision === 'admit' ? admission : null
+  }
+
+  /** 执行授权：人工批准与系统准入的统一判定，看板与服务入口共用。 */
+  requirementAuthorization(reqId: string): RequirementAuthorizationView {
+    const requirement = this.repo.getRequirement(reqId)
+    if (!requirement) {
+      return { status: 'missing', authorization: null, reason: `未找到需求 ${reqId}` }
+    }
+    const plan = this.repo.latestTaskPlan(reqId)
+    return resolveRequirementAuthorization({
+      requirementVersion: requirement.versions.length,
+      plan,
+      approval: plan
+        ? (this.repo.planApproval(reqId, plan.planVersion) ?? this.repo.latestPlanApproval(reqId))
+        : this.repo.latestPlanApproval(reqId),
+      admission: this.repo.latestAdmission(reqId),
+    })
   }
 
   autoAdvanceRequests(now = this.now()): string[] {
@@ -1697,7 +1717,9 @@ ${answer}`
 
   private requireAuthorizedPlan(
     reqId: string,
-  ): { ok: true; value: { plan: TaskPlan } } | { ok: false; result: OperationResult } {
+  ):
+    | { ok: true; value: { plan: TaskPlan; authorizationSource: string } }
+    | { ok: false; result: OperationResult } {
     const requirement = this.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, result: fail('not_found', `未找到需求 ${reqId}`) }
     const plan = this.repo.latestTaskPlan(reqId)
@@ -1711,15 +1733,17 @@ ${answer}`
         ),
       }
     }
-    const approval = this.repo.planApproval(reqId, plan.planVersion)
-    const authorization = authorizePlan(plan, approval)
-    if (authorization.status !== 'approved') {
+    const authorization = this.requirementAuthorization(reqId)
+    if (authorization.status !== 'authorized' || authorization.authorization === null) {
       return {
         ok: false,
-        result: fail('plan_not_approved', `${authorization.reason}；任务包尚未获得批准`),
+        result: fail('plan_not_approved', `任务包尚未获得授权：${authorization.reason}`),
       }
     }
-    return { ok: true, value: { plan } }
+    return {
+      ok: true,
+      value: { plan, authorizationSource: authorization.authorization.authorizationSource },
+    }
   }
 
   private verificationBaseline(analysis: RequirementAnalysis): PlanReview {

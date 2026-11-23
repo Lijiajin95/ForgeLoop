@@ -16,7 +16,7 @@ import {
   type SelfVerificationReport,
 } from '../domain/self-verification.js'
 import type { PlannedTask, TaskPlan } from '../domain/task-plan.js'
-import { authorizationSourceOf, executionOrder, planLimitSeconds } from '../domain/task-plan.js'
+import { executionOrder, planLimitSeconds } from '../domain/task-plan.js'
 import {
   AWAITING_DEV_SESSION,
   CANCELLED,
@@ -107,7 +107,9 @@ export interface AdvancePipelineDeps {
   currentAdmission: (reqId: string) => ReturnType<Repository['latestAdmission']>
   requireAuthorizedPlan: (
     reqId: string,
-  ) => { ok: true; value: { plan: TaskPlan } } | { ok: false; result: OperationResult }
+  ) =>
+    | { ok: true; value: { plan: TaskPlan; authorizationSource: string } }
+    | { ok: false; result: OperationResult }
   remainingFailureRounds: (reqId: string) => number
 }
 
@@ -1419,39 +1421,27 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     if (!authorized.ok) return authorized
     const requirement = this.deps.repo.getRequirement(reqId)
     if (!requirement) return { ok: false, detail: `未找到需求 ${reqId}` }
-    const context = await this.advanceContext(reqId, authorized.plan)
-    if (!context.ok) return context
+    const baseline = await headCommit(this.deps.config.projectPath)
     return {
       ok: true,
       requirement,
       plan: authorized.plan,
-      authorizationSource: context.authorizationSource,
-      baseline: context.baseline,
+      authorizationSource: authorized.authorizationSource,
+      baseline,
     }
   }
 
   private authorizedPlanOf(
     reqId: string,
-  ): { ok: true; plan: TaskPlan } | { ok: false; detail: string } {
+  ): { ok: true; plan: TaskPlan; authorizationSource: string } | { ok: false; detail: string } {
     const authorized = this.deps.requireAuthorizedPlan(reqId)
     return authorized.ok
-      ? { ok: true, plan: authorized.value.plan }
+      ? {
+          ok: true,
+          plan: authorized.value.plan,
+          authorizationSource: authorized.value.authorizationSource,
+        }
       : { ok: false, detail: authorized.result.message }
-  }
-
-  private async advanceContext(
-    reqId: string,
-    plan: TaskPlan,
-  ): Promise<
-    { ok: true; authorizationSource: string; baseline: string } | { ok: false; detail: string }
-  > {
-    const approval = this.deps.repo.planApproval(reqId, plan.planVersion)
-    if (!approval) return { ok: false, detail: `需求 ${reqId} 缺少计划批准记录` }
-    return {
-      ok: true,
-      authorizationSource: authorizationSourceOf(approval),
-      baseline: await headCommit(this.deps.config.projectPath),
-    }
   }
 
   async executeAdvance(

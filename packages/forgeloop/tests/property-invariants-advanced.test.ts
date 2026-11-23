@@ -292,7 +292,7 @@ describe('advanced property invariants', () => {
         activeRequest: false,
         runningTasks: 0,
         awaitingInputTasks: 0,
-        planApproved: true,
+        authorized: true,
         delivered: Math.min(deliveredRaw, total - 1),
         total,
       }))
@@ -314,14 +314,14 @@ describe('advanced property invariants', () => {
         fc.integer({ min: 0, max: 5 }),
         fc.integer({ min: 0, max: 5 }),
       )
-      .map(([status, planApproved, delivered, total]): RetryFacts => ({
+      .map(([status, authorized, delivered, total]): RetryFacts => ({
         status,
         blockedReason: '',
         remainingRounds: 3,
         activeRequest: false,
         runningTasks: 0,
         awaitingInputTasks: 0,
-        planApproved,
+        authorized,
         delivered,
         total,
       }))

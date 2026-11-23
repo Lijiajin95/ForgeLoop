@@ -1200,6 +1200,74 @@ describe('failure round board action', () => {
   })
 })
 
+describe('system admission as execution authorization', () => {
+  function admit(reqId: string, requirementVersion = 1): void {
+    repository.recordAdmission({
+      requirementId: reqId,
+      requirementVersion,
+      decision: {
+        admit: true,
+        code: 'admitted',
+        reason: '可信需求来源',
+        basis: {
+          policyVersion: 'system-admission-v1',
+          source: 'test',
+          submittedBy: 'owner',
+          owner: 'owner',
+          project: PROJECT,
+          projectPath: dir,
+          requirementVersion,
+          analysisVersion: 1,
+          trustedSource: true,
+          allowAnySource: true,
+          requireOwner: false,
+          codeCommitAllowed: true,
+        },
+      },
+      decidedBy: 'system:admission',
+      createdAt: '2026-10-23T00:00:02.000Z',
+    })
+  }
+
+  it('offers advance on an admitted requirement without any plan approval', () => {
+    const reqId = submit('req-admitted')
+    analyze(reqId, [])
+    admit(reqId)
+    repository.setStatus(reqId, 'specified')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.approval).toBe('admitted')
+    expect(requirement.actions).toContain('advance')
+  })
+
+  it('does not offer approve when the requirement is already authorized by admission', () => {
+    const reqId = submit('req-admitted-plan')
+    analyze(reqId, [])
+    admit(reqId)
+    repository.recordTaskPlan(plan(reqId))
+    repository.setStatus(reqId, 'plan_proposed')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.actions).not.toContain('approve')
+    expect(requirement.actions).toContain('advance')
+  })
+
+  it('keeps the plan approval label when the owner approved the plan', () => {
+    const reqId = submit('req-approved')
+    analyze(reqId, [])
+    repository.recordTaskPlan(plan(reqId))
+    repository.recordPlanApproval({
+      requirementId: reqId,
+      planVersion: 1,
+      approvedBy: 'owner',
+      approvedAt: '2026-10-23T00:00:03.000Z',
+      source: 'test',
+    })
+    repository.setStatus(reqId, 'approved')
+    const requirement = board().requirements.find((item) => item.reqId === reqId)!
+    expect(requirement.approval).toBe('approved')
+    expect(requirement.actions).toContain('advance')
+  })
+})
+
 describe('failed request issue dedupe', () => {
   function failRequest(reqId: string, index: number, detail: string): void {
     const requestId = `rq-repeat-${index}`

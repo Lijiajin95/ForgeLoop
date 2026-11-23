@@ -22,7 +22,7 @@ const facts = fc.record<RetryFacts>({
   activeRequest: fc.boolean(),
   runningTasks: fc.integer({ min: 0, max: 3 }),
   awaitingInputTasks: fc.integer({ min: 0, max: 3 }),
-  planApproved: fc.boolean(),
+  authorized: fc.boolean(),
   delivered: fc.integer({ min: 0, max: 5 }),
   total: fc.integer({ min: 0, max: 5 }),
 })
@@ -49,7 +49,7 @@ describe('property invariants', () => {
         const decision = retryDecision(input)
         if (!decision.allowed) return
         expect(RETRYABLE.has(input.status)).toBe(true)
-        expect(input.planApproved).toBe(true)
+        expect(input.authorized).toBe(true)
         expect(input.total).toBeGreaterThan(0)
         expect(input.delivered).toBeLessThan(input.total)
         expect(input.activeRequest).toBe(false)

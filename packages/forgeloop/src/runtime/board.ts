@@ -3,6 +3,10 @@ import { bestEffortValue } from './best-effort.js'
 import type { Repository } from '../records/repository.js'
 import type { Requirement } from '../domain/requirement.js'
 import { authorizePlan, type TaskPlan } from '../domain/task-plan.js'
+import {
+  resolveRequirementAuthorization,
+  type RequirementAuthorizationView,
+} from '../domain/authorization.js'
 import { candidateIdentityOf } from '../domain/delivery.js'
 import { validateTaskPlan } from '../domain/task-plan.js'
 import {
@@ -124,6 +128,17 @@ export interface BoardDeploymentView {
   readonly failedChecks: readonly string[]
 }
 
+function approvalStatusOf(
+  execution: RequirementAuthorizationView,
+  plan: ReturnType<typeof authorizePlan> | null,
+  hasPlan: boolean,
+): 'approved' | 'admitted' | 'missing' | 'stale' | 'none' {
+  if (plan?.status === 'approved') return 'approved'
+  if (execution.status === 'authorized') return 'admitted'
+  if (execution.status === 'stale' || plan?.status === 'stale') return 'stale'
+  return hasPlan ? 'missing' : 'none'
+}
+
 export interface BoardRequirementView {
   readonly reqId: string
   readonly title: string
@@ -132,7 +147,7 @@ export interface BoardRequirementView {
   readonly source: string
   readonly submittedBy: string
   readonly planVersion: number | null
-  readonly approval: 'approved' | 'missing' | 'stale' | 'none'
+  readonly approval: 'approved' | 'admitted' | 'missing' | 'stale' | 'none'
   readonly planReview: BoardPlanReviewView | null
   readonly verification: BoardVerificationView | null
   readonly businessReview: BoardBusinessReviewView | null
@@ -672,7 +687,7 @@ export interface ProjectRequirementFact {
   readonly updatedAt: string
   readonly goal: string
   readonly planVersion: number | null
-  readonly approval: 'approved' | 'missing' | 'stale' | 'none'
+  readonly approval: 'approved' | 'admitted' | 'missing' | 'stale' | 'none'
   readonly taskCount: number
   readonly tasks: readonly ProjectTaskFact[]
 }
@@ -732,6 +747,15 @@ export function buildProjectFacts(input: BuildProjectFactsInput): ProjectFacts {
             repository.latestPlanApproval(requirement.reqId),
         )
       : null
+    const execution = resolveRequirementAuthorization({
+      requirementVersion: requirement.versions.length,
+      plan,
+      approval: plan
+        ? (repository.planApproval(requirement.reqId, plan.planVersion) ??
+          repository.latestPlanApproval(requirement.reqId))
+        : null,
+      admission: repository.latestAdmission(requirement.reqId),
+    })
     const runs = plan ? repository.taskRuns(requirement.reqId, plan.planVersion) : []
     const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
     const delivered = new Set(artifacts.map((artifact) => artifact.taskId))
@@ -757,7 +781,7 @@ export function buildProjectFacts(input: BuildProjectFactsInput): ProjectFacts {
       updatedAt: updatedAtOf(requirement),
       goal: analysis?.goal ?? '',
       planVersion: plan?.planVersion ?? null,
-      approval: approval?.status ?? 'none',
+      approval: approvalStatusOf(execution, approval, plan !== null),
       taskCount: plan?.tasks.length ?? 0,
       tasks,
     }
@@ -788,6 +812,7 @@ interface IssueContext {
   readonly latestAnalysis: ReturnType<Repository['latestAnalysis']>
   readonly plan: TaskPlan | null
   readonly authorization: ReturnType<typeof authorizePlan> | null
+  readonly execution: RequirementAuthorizationView
   readonly planReviewView: BoardPlanReviewView | null
   readonly rounds: ReturnType<Repository['failureRounds']>
   readonly remainingRounds: number
@@ -890,13 +915,8 @@ function requestIssues(context: IssueContext): BoardIssueView[] {
 }
 
 function approvalIssues(context: IssueContext): BoardIssueView[] {
-  const { requirement, plan, authorization, planReviewView } = context
-  if (
-    !plan ||
-    requirement.status !== PLAN_PROPOSED ||
-    !authorization ||
-    authorization.status === 'approved'
-  ) {
+  const { requirement, plan, execution, planReviewView } = context
+  if (!plan || requirement.status !== PLAN_PROPOSED || execution.status === 'authorized') {
     return []
   }
   if (planReviewView?.verdict === 'block') {
@@ -920,7 +940,7 @@ function approvalIssues(context: IssueContext): BoardIssueView[] {
         kind: ISSUE_APPROVAL,
         severity: 'attention',
         title: `任务包 v${plan.planVersion} 待批准`,
-        detail: authorization.reason || '任务包尚未获得批准',
+        detail: execution.reason || '任务包尚未获得授权',
         createdAt: plan.createdAt,
       },
     ]
@@ -1028,6 +1048,7 @@ interface ActionContext {
   readonly terminal: boolean
   readonly plan: TaskPlan | null
   readonly authorization: ReturnType<typeof authorizePlan> | null
+  readonly execution: RequirementAuthorizationView
   readonly planReviewView: BoardPlanReviewView | null
   readonly planValid: boolean
   readonly progress: BoardProgress
@@ -1073,7 +1094,7 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
 }
 
 function applyPlanAction(actions: BoardRequirementAction[], context: ActionContext): void {
-  const { requirement, plan, authorization, planReviewView, planValid, progress } = context
+  const { requirement, plan, execution, planReviewView, planValid, progress } = context
   if (plan === null) {
     const canPlan =
       requirement.status === SPECIFIED &&
@@ -1083,21 +1104,21 @@ function applyPlanAction(actions: BoardRequirementAction[], context: ActionConte
     if (canPlan) actions.push('plan')
     return
   }
-  const pendingPlan =
-    requirement.status === PLAN_PROPOSED &&
-    authorization !== null &&
-    authorization.status !== 'approved'
+  const pendingPlan = requirement.status === PLAN_PROPOSED && execution.status !== 'authorized'
   if (!pendingPlan) return
   if (planReviewView?.verdict === 'pass' && planValid) actions.push('approve')
   else if (!context.activeRequest && progress.running === 0) actions.push('plan')
 }
 
 function canAdvance(context: ActionContext): boolean {
-  const { requirement, authorization, progress, remainingRounds } = context
+  const { requirement, execution, progress, remainingRounds } = context
+  const admitted = execution.authorization?.kind === 'system-admission'
+  const startable =
+    admitted && (requirement.status === SPECIFIED || requirement.status === PLAN_PROPOSED)
   return (
-    authorization?.status === 'approved' &&
-    (requirement.status === APPROVED || requirement.status === EXECUTING) &&
-    progress.delivered < progress.total &&
+    execution.status === 'authorized' &&
+    (requirement.status === APPROVED || requirement.status === EXECUTING || startable) &&
+    (progress.total === 0 ? admitted : progress.delivered < progress.total) &&
     remainingRounds !== 0 &&
     progress.running === 0 &&
     progress.awaitingInput === 0 &&
@@ -1106,14 +1127,13 @@ function canAdvance(context: ActionContext): boolean {
 }
 
 function canVerify(context: ActionContext): boolean {
-  const { requirement, authorization, progress, remainingRounds, verificationFresh } = context
+  const { requirement, execution, progress, remainingRounds, verificationFresh } = context
   return (
-    authorization?.status === 'approved' &&
+    execution.status === 'authorized' &&
     (requirement.status === APPROVED || requirement.status === EXECUTING) &&
     progress.total > 0 &&
     progress.delivered === progress.total &&
     remainingRounds !== 0 &&
-    context.planReviewView?.verdict === 'pass' &&
     progress.running === 0 &&
     progress.awaitingInput === 0 &&
     !context.activeRequest &&
@@ -1335,6 +1355,7 @@ function collectRequirementFacts(
   plan: ReturnType<Repository['latestTaskPlan']>
   approvalRecord: ReturnType<Repository['planApproval']>
   authorization: ReturnType<typeof authorizePlan> | null
+  execution: RequirementAuthorizationView
   artifacts: ReturnType<Repository['taskArtifacts']>
   runs: ReturnType<Repository['taskRuns']>
   delivered: Set<string>
@@ -1367,6 +1388,12 @@ function collectRequirementFacts(
       repository.latestPlanApproval(requirement.reqId))
     : null
   const authorization = plan ? authorizePlan(plan, approvalRecord) : null
+  const execution = resolveRequirementAuthorization({
+    requirementVersion: requirement.versions.length,
+    plan,
+    approval: approvalRecord,
+    admission: repository.latestAdmission(requirement.reqId),
+  })
   const artifacts = plan ? repository.taskArtifacts(requirement.reqId, plan.planVersion) : []
   const runs = plan ? repository.taskRuns(requirement.reqId, plan.planVersion) : []
   const delivered = new Set(artifacts.map((artifact) => artifact.taskId))
@@ -1436,6 +1463,7 @@ function collectRequirementFacts(
     approvalRecord,
     artifacts,
     authorization,
+    execution,
     runs,
     delivered,
     runByTask,
@@ -1470,6 +1498,7 @@ function buildRequirementChunk(
     latestAnalysis,
     plan,
     authorization,
+    execution,
     runs,
     delivered,
     runByTask,
@@ -1504,7 +1533,7 @@ function buildRequirementChunk(
     activeRequest,
     runningTasks: progress.running,
     awaitingInputTasks: progress.awaitingInput,
-    planApproved: authorization?.status === 'approved',
+    authorized: execution.status === 'authorized',
     delivered: progress.delivered,
     total: progress.total,
   })
@@ -1514,6 +1543,7 @@ function buildRequirementChunk(
     terminal,
     plan,
     authorization,
+    execution,
     planReviewView,
     planValid,
     progress,
@@ -1533,7 +1563,7 @@ function buildRequirementChunk(
     status: requirement.status,
     version: requirement.versions.length,
     planVersion: plan?.planVersion ?? null,
-    approval: authorization?.status ?? 'none',
+    approval: approvalStatusOf(execution, authorization, plan !== null),
     source: requirement.source,
     submittedBy: requirement.submittedBy,
     planReview: planReviewView,
@@ -1559,6 +1589,7 @@ function buildRequirementChunk(
     latestAnalysis,
     plan,
     authorization,
+    execution,
     planReviewView,
     rounds,
     remainingRounds,

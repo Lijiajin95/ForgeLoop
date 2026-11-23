@@ -5,7 +5,7 @@ export interface RetryFacts {
   readonly activeRequest: boolean
   readonly runningTasks: number
   readonly awaitingInputTasks: number
-  readonly planApproved: boolean
+  readonly authorized: boolean
   readonly delivered: number
   readonly total: number
 }
@@ -33,7 +33,7 @@ export function retryDecision(facts: RetryFacts): RetryDecision {
   if (!RETRYABLE_STATUSES.has(facts.status)) {
     return { allowed: false, reason: `需求状态 ${facts.status} 不能重新执行` }
   }
-  if (!facts.planApproved) return { allowed: false, reason: '任务包尚未批准' }
+  if (!facts.authorized) return { allowed: false, reason: '任务包尚未获得授权' }
   if (facts.total === 0) return { allowed: false, reason: '任务包没有任务' }
   if (facts.delivered >= facts.total) {
     return { allowed: false, reason: '任务已全部交付，下一步是独立测试' }

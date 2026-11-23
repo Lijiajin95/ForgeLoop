@@ -191,7 +191,10 @@ beforeEach(() => {
   artifact = null
   approval = { planVersion: 1, approvedBy: 'owner', approvedAt: NOW, source: 'test' }
   remainingRounds = 3
-  authorizedPlanResult = { ok: true, value: { plan } }
+  authorizedPlanResult = {
+    ok: true,
+    value: { plan, authorizationSource: 'system-admission:adm-1' },
+  }
   verifyResults = []
   commitResult = { ok: true, commitSha: 'a'.repeat(40) }
   finishThrows = false
@@ -312,15 +315,24 @@ describe('advance pipeline branch boundaries', () => {
     })
   })
 
-  it('reports missing authorization context', async () => {
+  it('propagates the unified authorization decision and its source', async () => {
     const pipeline = makePipeline()
-    approval = null
+    authorizedPlanResult = {
+      ok: false,
+      result: { code: 'plan_not_approved', message: '任务包尚未获得授权' },
+    }
     expect(await pipeline['advanceInputs']('req-1')).toMatchObject({
       ok: false,
-      detail: '需求 req-1 缺少计划批准记录',
+      detail: '任务包尚未获得授权',
     })
-    approval = { planVersion: 1, approvedBy: 'owner', approvedAt: NOW, source: 'test' }
-    expect(await pipeline['advanceInputs']('req-1')).toMatchObject({ ok: true })
+    authorizedPlanResult = {
+      ok: true,
+      value: { plan, authorizationSource: 'system-admission:adm-1' },
+    }
+    expect(await pipeline['advanceInputs']('req-1')).toMatchObject({
+      ok: true,
+      authorizationSource: 'system-admission:adm-1',
+    })
   })
 
   it('records a failed task when delivery throws without an artifact', async () => {

@@ -13,7 +13,7 @@ const OK: RetryFacts = {
   activeRequest: false,
   runningTasks: 0,
   awaitingInputTasks: 0,
-  planApproved: true,
+  authorized: true,
   delivered: 0,
   total: 2,
 }
@@ -31,8 +31,8 @@ describe('retry decision', () => {
     expect(retryDecision({ ...OK, status: 'plan_proposed' }).allowed).toBe(false)
   })
 
-  it('requires an approved plan with at least one task', () => {
-    expect(retryDecision({ ...OK, planApproved: false }).reason).toContain('尚未批准')
+  it('requires an authorized plan with at least one task', () => {
+    expect(retryDecision({ ...OK, authorized: false }).reason).toContain('尚未获得授权')
     expect(retryDecision({ ...OK, total: 0 }).reason).toContain('没有任务')
   })
 
@@ -91,9 +91,9 @@ describe('retry decision reasons (mutation-kill)', () => {
   })
 
   it('reports every blocking fact with the exact reason', () => {
-    expect(retryDecision({ ...OK, planApproved: false })).toEqual({
+    expect(retryDecision({ ...OK, authorized: false })).toEqual({
       allowed: false,
-      reason: '任务包尚未批准',
+      reason: '任务包尚未获得授权',
     })
     expect(retryDecision({ ...OK, total: 0 })).toEqual({
       allowed: false,

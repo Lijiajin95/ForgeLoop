@@ -1114,7 +1114,7 @@ describe('retryTask 资格判定', () => {
     ).toEqual({
       ok: false,
       code: 'plan_not_approved',
-      message: '未找到该需求的任务包批准；未批准不执行；任务包尚未获得批准',
+      message: '任务包尚未获得授权：未获得系统准入或人工批准；不能进入研发',
     })
   })
 

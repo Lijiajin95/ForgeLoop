@@ -102,12 +102,8 @@ window.__ModuleLoader__.load({
         ),
         reason: item.title,
         detail: item.detail || '',
-        target: item.taskId
-          ? item.taskGoal || item.taskId
-          : item.requirementTitle || item.reqId,
-        stage: item.taskId
-          ? t('wb.task')
-          : t('wb.requirement'),
+        target: item.taskId ? item.taskGoal || item.taskId : item.requirementTitle || item.reqId,
+        stage: item.taskId ? t('wb.task') : t('wb.requirement'),
         tone: item.severity === 'blocking' ? 'error' : 'warn',
         actionLabel: t(item.taskId ? 'queue.openTask' : 'queue.openRequirement'),
         reqId: item.reqId,
@@ -428,7 +424,10 @@ window.__ModuleLoader__.load({
       const blocking = Array.isArray(attempt.blocking) ? attempt.blocking : []
       return h(
         'li',
-        { className: 'flb-activity-row', 'data-tone': attempt.verdict === 'pass' ? 'success' : 'error' },
+        {
+          className: 'flb-activity-row',
+          'data-tone': attempt.verdict === 'pass' ? 'success' : 'error',
+        },
         h(
           'div',
           { className: 'flb-activity-head' },
@@ -440,7 +439,11 @@ window.__ModuleLoader__.load({
           h(
             Chip,
             { tone: attempt.verdict === 'pass' ? 'success' : 'error' },
-            t(attempt.verdict === 'pass' ? 'stage.activity.verdict.pass' : 'stage.activity.verdict.block'),
+            t(
+              attempt.verdict === 'pass'
+                ? 'stage.activity.verdict.pass'
+                : 'stage.activity.verdict.block',
+            ),
           ),
           h(
             'span',
@@ -620,6 +623,7 @@ window.__ModuleLoader__.load({
       'requirement.noPlan': '未规划',
       'requirement.progress': '{delivered}/{total} 已交付',
       'requirement.approved': '已批准',
+      'requirement.approvalAdmitted': '系统准入',
       'requirement.approvalMissing': '未批准',
       'requirement.approvalStale': '批准过期',
       'requirement.planReviewMissing': '未评审',
@@ -881,6 +885,7 @@ window.__ModuleLoader__.load({
       'requirement.noPlan': 'No plan',
       'requirement.progress': '{delivered}/{total} delivered',
       'requirement.approved': 'Approved',
+      'requirement.approvalAdmitted': 'System-admitted',
       'requirement.approvalMissing': 'Not approved',
       'requirement.approvalStale': 'Approval stale',
       'requirement.planReviewMissing': 'Not reviewed',
@@ -1832,7 +1837,8 @@ window.__ModuleLoader__.load({
       'detail.specSampleObserve': 'Observe at',
       'detail.specNoReferences': 'No reference with an applicable version and excerpt yet.',
       'detail.specNoUiMap': 'This requirement declares no interface or user-path change.',
-      'detail.specNoSamples': 'No acceptance sample with fixed data, steps and an independent expectation yet.',
+      'detail.specNoSamples':
+        'No acceptance sample with fixed data, steps and an independent expectation yet.',
       'detail.specWorkingAssumption': 'Working assumption',
       'detail.specPoint': 'Actor',
       'detail.specTrigger': 'Trigger',
@@ -2046,7 +2052,8 @@ window.__ModuleLoader__.load({
       'stage.points': 'Business points',
       'stage.acceptance': 'Acceptance',
       'stage.unlinked': 'Not linked',
-      'stage.noPoints': 'This analysis has no structured business points; read the detail for the text.',
+      'stage.noPoints':
+        'This analysis has no structured business points; read the detail for the text.',
       'stage.showAll': 'Show all',
       'stage.selected': '{id} selected',
       'stage.tasks': 'Development tasks',
@@ -2341,8 +2348,10 @@ window.__ModuleLoader__.load({
       'product.body.truncated': 'Text truncated',
       'product.rebuild.start': 'Rebuild library',
       'product.rebuild.starting': 'Starting rebuild…',
-      'product.rebuild.progress': 'Rebuilding: {stage} · batch {done}/{total} · materials {materials}',
-      'product.rebuild.done': 'Rebuilt {published} draft(s); conflicts {conflicts}, unresolved {unresolved}',
+      'product.rebuild.progress':
+        'Rebuilding: {stage} · batch {done}/{total} · materials {materials}',
+      'product.rebuild.done':
+        'Rebuilt {published} draft(s); conflicts {conflicts}, unresolved {unresolved}',
       'product.rebuild.failed': 'Rebuild failed',
       'product.rebuild.cancelled': 'Rebuild cancelled',
       'product.rebuild.cancel': 'Cancel rebuild',
@@ -6189,7 +6198,7 @@ window.__ModuleLoader__.load({
           return Boolean(
             requirement &&
             !isTerminalStatus(requirement.status) &&
-            requirement.approval === 'approved' &&
+            (requirement.approval === 'approved' || requirement.approval === 'admitted') &&
             (requirement.remainingRounds === null ||
               requirement.remainingRounds === undefined ||
               requirement.remainingRounds > 0) &&
@@ -6772,7 +6781,6 @@ window.__ModuleLoader__.load({
             .map((task) => h('div', { key: task.taskId }, node(task))),
         )
       }
-
 
       function TaskOverview(props) {
         const t = props.t
@@ -7596,9 +7604,11 @@ window.__ModuleLoader__.load({
                   { label: t('wb.approval') },
                   requirement.approval === 'approved'
                     ? t('wb.approved')
-                    : requirement.approval === 'stale'
-                      ? t('wb.stale')
-                      : t('requirement.approvalMissing'),
+                    : requirement.approval === 'admitted'
+                      ? t('requirement.approvalAdmitted')
+                      : requirement.approval === 'stale'
+                        ? t('wb.stale')
+                        : t('requirement.approvalMissing'),
                 ),
                 h(
                   Kv,
@@ -8096,9 +8106,7 @@ window.__ModuleLoader__.load({
               t('page.refresh'),
             ),
           ),
-          props.error
-            ? h('div', { className: 'flb-error', role: 'alert' }, props.error)
-            : null,
+          props.error ? h('div', { className: 'flb-error', role: 'alert' }, props.error) : null,
           rows.length === 0
             ? loading
               ? h('div', { className: 'flb-empty' }, t('queue.loading'))
@@ -8158,7 +8166,9 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               ),
-          loading && rows.length > 0 ? h('div', { className: 'flb-muted' }, t('queue.loading')) : null,
+          loading && rows.length > 0
+            ? h('div', { className: 'flb-muted' }, t('queue.loading'))
+            : null,
           props.hasMore
             ? h(
                 'div',
@@ -8177,7 +8187,6 @@ window.__ModuleLoader__.load({
             : null,
         )
       }
-
 
       const OPS_STATE_TONE = {
         open: 'warn',
@@ -8564,8 +8573,7 @@ window.__ModuleLoader__.load({
           rebuild !== null &&
           (rebuild.phase === 'starting' ||
             Boolean(
-              rebuild.run &&
-                (rebuild.run.status === 'queued' || rebuild.run.status === 'running'),
+              rebuild.run && (rebuild.run.status === 'queued' || rebuild.run.status === 'running'),
             ))
 
         const rebuildStatusText = (() => {
@@ -8668,13 +8676,7 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'flb-product-body' },
             entry.ref
-              ? h(
-                  'div',
-                  { className: 'flb-product-meta' },
-                  t('product.body.ref'),
-                  '：',
-                  entry.ref,
-                )
+              ? h('div', { className: 'flb-product-meta' }, t('product.body.ref'), '：', entry.ref)
               : null,
             h('pre', { className: 'flb-product-body-text' }, state.content),
           )
@@ -8837,9 +8839,7 @@ window.__ModuleLoader__.load({
                   h(
                     'span',
                     { className: 'flb-library-topic-count' },
-                    String(
-                      entries.filter((entry) => (entry.topics || []).includes(name)).length,
-                    ),
+                    String(entries.filter((entry) => (entry.topics || []).includes(name)).length),
                   ),
                 ),
               ),
@@ -9280,8 +9280,7 @@ window.__ModuleLoader__.load({
             ]
           : []
 
-        const rateCell = (rate) =>
-          rate && typeof rate.rate === 'number' ? `${rate.rate}%` : '—'
+        const rateCell = (rate) => (rate && typeof rate.rate === 'number' ? `${rate.rate}%` : '—')
         const historyTable = (headers, rows) =>
           h(
             'div',
@@ -9313,9 +9312,7 @@ window.__ModuleLoader__.load({
           )
         const sampleRows = samples.map((sample) => [
           formatMoment(sample.sampledAt),
-          sample.commit
-            ? `${shortSha(sample.commit)} · ${formatMoment(sample.asOf)}`
-            : '—',
+          sample.commit ? `${shortSha(sample.commit)} · ${formatMoment(sample.asOf)}` : '—',
           rateCell(sample.verification),
           rateCell(sample.firstPassVerification),
           rateCell(sample.businessReview),
@@ -9974,11 +9971,7 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'flb-rel-section-head' },
-              h(
-                'span',
-                { className: 'flb-rel-section-title' },
-                t('reliability.history.snapshots'),
-              ),
+              h('span', { className: 'flb-rel-section-title' }, t('reliability.history.snapshots')),
               h(
                 'span',
                 { className: 'flb-rel-section-meta' },
@@ -10588,8 +10581,7 @@ window.__ModuleLoader__.load({
               )
             : h('span', { className: 'flb-muted' }, t('stage.noActivity'))
         const activityCount = (stage) => {
-          const list =
-            stage === 'product' ? data.analysisActivity : data.verificationActivity
+          const list = stage === 'product' ? data.analysisActivity : data.verificationActivity
           return Array.isArray(list) ? list.length : 0
         }
         const pointRows = points.rows.map((point) =>
@@ -10745,8 +10737,8 @@ window.__ModuleLoader__.load({
                     ? h('p', { className: 'flb-text' }, verification.summary)
                     : null,
                   verification &&
-                  Array.isArray(verification.blocking) &&
-                  verification.blocking.length > 0
+                    Array.isArray(verification.blocking) &&
+                    verification.blocking.length > 0
                     ? h(
                         'div',
                         { className: 'flb-banner', 'data-tone': 'error' },
@@ -10758,11 +10750,7 @@ window.__ModuleLoader__.load({
                         'div',
                         { className: 'flb-stage-anomaly' },
                         h('div', { className: 'flb-label' }, t('stage.verification.anomaly')),
-                        h(
-                          'div',
-                          null,
-                          anomaly.blocking[0] || anomaly.failureKind || t('wb.error'),
-                        ),
+                        h('div', null, anomaly.blocking[0] || anomaly.failureKind || t('wb.error')),
                       )
                     : null,
                   scenarios.length > 0
@@ -10897,11 +10885,7 @@ window.__ModuleLoader__.load({
               h(
                 'footer',
                 { className: 'flb-stage-foot' },
-                activityButton(
-                  'verification',
-                  activityCount('verification'),
-                  t('stage.execution'),
-                ),
+                activityButton('verification', activityCount('verification'), t('stage.execution')),
               ),
             ),
           ),
@@ -11381,7 +11365,11 @@ window.__ModuleLoader__.load({
         const closeOverlay = () => {
           setOverlay('')
           const node = lastFocus.current
-          if (node && typeof node.focus === 'function' && typeof requestAnimationFrame === 'function') {
+          if (
+            node &&
+            typeof node.focus === 'function' &&
+            typeof requestAnimationFrame === 'function'
+          ) {
             requestAnimationFrame(() => node.focus())
           }
         }
@@ -11580,8 +11568,8 @@ window.__ModuleLoader__.load({
                 )
               : null,
             current &&
-            Array.isArray(current.actions) &&
-            current.actions.some((action) => !STAGE_ACTIONS.has(action))
+              Array.isArray(current.actions) &&
+              current.actions.some((action) => !STAGE_ACTIONS.has(action))
               ? h(
                   'details',
                   { className: 'flb-actions-menu' },
@@ -11596,11 +11584,7 @@ window.__ModuleLoader__.load({
                 )
               : null,
             action.message
-              ? h(
-                  'span',
-                  { className: 'flb-card-action-message', role: 'status' },
-                  action.message,
-                )
+              ? h('span', { className: 'flb-card-action-message', role: 'status' }, action.message)
               : null,
           )
         }

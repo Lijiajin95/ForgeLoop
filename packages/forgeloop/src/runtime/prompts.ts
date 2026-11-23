@@ -20,6 +20,7 @@ export function requirementContext(requirement: Requirement): string {
 
 function approvalLabel(status: ProjectRequirementFact['approval']): string {
   if (status === 'approved') return '已批准'
+  if (status === 'admitted') return '系统准入授权'
   if (status === 'missing') return '未批准'
   if (status === 'stale') return '批准已过期'
   return '无批准记录'
