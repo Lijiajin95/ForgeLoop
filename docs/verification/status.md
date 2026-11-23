@@ -13,7 +13,7 @@
 | 活动实现     | TypeScript 原生 DSH 插件；业务会话、需求分析/澄清、系统准入、自动推进、研发拆解、独立验证、业务终审、验收、候选构建、受控提交与部署接口均已接入；部署目标可配置默认需求，也可由 intent 按需求复用；天工页提供停止/取消/恢复、追加授权、工时延长、构建与上线核对；部署协调器的工作台页面与证据入口未实现；`autoDeliver` 目标已接入提交后自动构建/部署/核对与修复回流；当前 Windows DSH `web` profile（3080）已运行 2026-11-05 tarball，真实需求 `req-20261105090042-07ff5f` 已在页面可见                                                                                                                                                                                                                                                                                                                                                | [架构](../development/architecture.md)、§131–§136                                                                                      |
 | 架构契约     | 2026-10-29 起为 schema v3：只固定分层/依赖方向/循环/退役路径/工具与 UI/会话表面；源码模块、工具名、Web 端点自动发现，`make contracts` 只检查、无登记更新步骤                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | §30                                                                                                                                    |
 | 退役代码清理 | 已删除 `legacy/`、失效安装脚本与未接入运行链路的重复代码；历史从 Git 回查                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §13、[ADR 0009](../development/adr/0009-remove-retired-implementation.md)                                                              |
-| 最近安装记录 | 2026-11-23 10:46 `forgeloop-dsh@0.0.2` tarball（SHA-256 `b7692c82…`，gitHead `32fe12b`）安装到当前 Windows `web` profile（依赖 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261123-1046.tgz`；bundle 禁用/启用后在进程内重载）；上一包 `20261123-0015.tgz`（`da0914f2…`）保留可回滚；安装记录不等于交付完成 | §267 |
+| 最近安装记录 | 2026-11-23 10:46 `forgeloop-dsh@0.0.2` tarball（SHA-256 `b7692c82…`，gitHead `32fe12b`）安装到当前 Windows `web` profile（依赖 `C:/Users/lijia/.forgeloop/artifacts/forgeloop-dsh-0.0.2-20261123-1046.tgz`；bundle 禁用/启用后在进程内重载）；上一包 `20261123-0015.tgz`（`da0914f2…`）保留可回滚；安装记录不等于交付完成                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §267                                                                                                                                   |
 | 最近工程检查 | 2026-11-06 worktree `feat/m1-closure`：`check-static`（typecheck、ESLint、contracts、token/断言预算、可靠性注册表）通过；定向 mutation 73 项、verification 54 项、identity 3 项通过；全量 `make check` 157 文件/1887 项中 66 失败（11 文件，集中在 Windows 控制副本夹具与 recordsRoot 在项目内时的敏感性对照），未通过。M1 现场与失败见 §168。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §132.4、§135.3、§168                                                                                                                   |
 | 真实业务链路 | 2026-11-05 当前 DSH `web`（3080）真实需求 `req-20261105090042-07ff5f`：通过插件工具提交，经分析→系统准入→研发→独立验证（pass）→业务终审（pass）→受控提交 `e18de603ae08…`，共约 5 分钟；天工页可见，Board detail 返回 `fresh=true`、`businessReview=pass`。另有真实模型部署 E2E `req-20261105084110-d498df`（到隔离目标 verified）与 §134 的 M0 E2E 证据。2026-11-06 M1 收尾新增的两条真实闭环 A/B 均未跑通：停止时分别停在 `control-apply`、`watchdog-root-cause`，0 提交、0 部署 intent、0 关闭事件（§168）。                                                                                                                                                                                                                                                                                                                         | §131、§133–§135、§168                                                                                                                  |
 | 运维 Agent   | 2026-10-29 首版 + 2026-11-02 定时主动监控 + 2026-11-03 按需读制品日志：登记资源/检查/少量恢复动作；按 `ops.monitor.intervalSeconds` 采集主机 CPU/内存/负载、进程、HTTP 延迟、日志尾部、外部告警与检查最后状态，Agent 评审后建事件；另有两个只读工具按需读取 `ops.artifacts` 登记的制品运行状态（安装版本、pid、存活、身份摘要）与日志尾部（行数、错误行数可过滤）；快照记录产生它的监控提供方（当前只有自研 `builtin`，未登记提供方在装载时失败），每轮扫描后按配置向外部死信服务上报一次心跳；目录授权或所有者批准后执行，登记检查复核恢复，诊断要求永久修复时生成关联修复需求，新事件向 webhook 尽力告警一次；只读工具与认证端点、天工“运维”视图含监控条与提供方/心跳；尚无真实线上事件验证；2026-11-06 起按所有者决定进入维护阶段（§178、[ADR 0011](../development/adr/0011-ops-maintenance-first.md)），不再扩展外部工具或主动复跑 | §35、§110、§112、[运维设计](../development/ops-agent.md)、§178                                                                         |
@@ -9841,7 +9841,6 @@ sha256 `da0914f2…`，安装到 `profiles/web` 并禁用/启用 bundle 重载�
 - 未点击按钮：推进属于所有者决定，页面按钮交由所有者操作；按钮命中与否由服务端 `actions` 与
   `board-route` 既有测试保证。
 
-
 ## 267. 产品卡片双击打开条目窗口（2026-11-23）
 
 - 产品页条目卡片支持双击打开同一个条目窗口；标题按钮与「查看详情 ↗」保留单击入口。
@@ -9864,11 +9863,11 @@ sha256 `da0914f2…`，安装到 `profiles/web` 并禁用/启用 bundle 重载�
 
 本批计划与实际文件范围均为三份文档。
 
-| 文件 | 目的 |
-| --- | --- |
+| 文件                      | 目的                                                               |
+| ------------------------- | ------------------------------------------------------------------ |
 | `docs/product/product.md` | 在 §5.2.1 登记已确认的人工评审边界、旧流程退役要求和待定的准出位置 |
-| `CONTEXT.md` | 补充人工评审与研发准出术语，明确运行时待实施 |
-| 本文件 | 记录当前源码核对、文档批次及后续实施依赖 |
+| `CONTEXT.md`              | 补充人工评审与研发准出术语，明确运行时待实施                       |
+| 本文件                    | 记录当前源码核对、文档批次及后续实施依赖                           |
 
 核对基线为 `main@9bd110c`。当前仍有以下实际入口，需要在运行时批次中处理。
 
@@ -9916,12 +9915,12 @@ sha256 `da0914f2…`，安装到 `profiles/web` 并禁用/启用 bundle 重载�
 
 ### 269.2 实跑结果
 
-| 场景 | 退出码 | 容器网络 | 结果与证据 |
-| --- | --- | --- | --- |
-| `make e2e` | 0 | `none` | `e2e` 与 `e2e-board` 均通过；看板工作区 `ws-3ab89c00-…`，租户库在容器 `/tmp/forgeloop-e2e-board-1m8ACr/...`；运行 `forgeloop-verify-10f17b34-…`。 |
-| `make m1-seed` | 0 | `none` | 插件 `0.0.2` tarball `3b22d64e…` 装入隔离 `m1-seed` profile；宿主 pid 97 写出的 `runtime-identity.json` 版本、pid 与制品摘要一致；运行 `forgeloop-verify-1759e4f1-…`。 |
-| `make real-deploy-interrupt` | 0 | `none` | 两种结果均完成：副作用可确认 → `applied_pending_verify` / `recovery_applied`；副作用无法确认 → 保留 `applying` / `recovery_unknown` + `alert`；两边安装计数均为 1，无重装；运行 `forgeloop-verify-630b7463-…`。 |
-| `make m0-loop-e2e` | 0 | `none` | S1 提交 `53bb4e42…`、制品 `a1771727…`、部署核对通过；S2 真实杀进程后恢复 `ops-…-3e9e49`；S3 修复需求 `req-…-44a77b` 提交 `2c29b65a…` 并再次部署；停止/恢复与 `maxVerificationAttempts=1` 限额均按预期停住；负例（非所有者批准、工具面无部署/批准、越界文件）全部被拒；运行 `forgeloop-verify-427a007d-…`。 |
+| 场景                         | 退出码 | 容器网络 | 结果与证据                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make e2e`                   | 0      | `none`   | `e2e` 与 `e2e-board` 均通过；看板工作区 `ws-3ab89c00-…`，租户库在容器 `/tmp/forgeloop-e2e-board-1m8ACr/...`；运行 `forgeloop-verify-10f17b34-…`。                                                                                                                                                          |
+| `make m1-seed`               | 0      | `none`   | 插件 `0.0.2` tarball `3b22d64e…` 装入隔离 `m1-seed` profile；宿主 pid 97 写出的 `runtime-identity.json` 版本、pid 与制品摘要一致；运行 `forgeloop-verify-1759e4f1-…`。                                                                                                                                     |
+| `make real-deploy-interrupt` | 0      | `none`   | 两种结果均完成：副作用可确认 → `applied_pending_verify` / `recovery_applied`；副作用无法确认 → 保留 `applying` / `recovery_unknown` + `alert`；两边安装计数均为 1，无重装；运行 `forgeloop-verify-630b7463-…`。                                                                                            |
+| `make m0-loop-e2e`           | 0      | `none`   | S1 提交 `53bb4e42…`、制品 `a1771727…`、部署核对通过；S2 真实杀进程后恢复 `ops-…-3e9e49`；S3 修复需求 `req-…-44a77b` 提交 `2c29b65a…` 并再次部署；停止/恢复与 `maxVerificationAttempts=1` 限额均按预期停住；负例（非所有者批准、工具面无部署/批准、越界文件）全部被拒；运行 `forgeloop-verify-427a007d-…`。 |
 
 M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修复需求
 `req-20261123090306-44a77b`，限额需求 `req-20261123090307-de059e` 在
@@ -10013,12 +10012,12 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 ### 270.2 实跑结果
 
-| 场景 | 退出码 | 容器网络 | 结果与证据 |
-| --- | --- | --- | --- |
-| `make.cmd e2e` | 0 | `none` | 隔离 profile 安装、DSH 装载与组合校验通过；看板工作区 `ws-155036ce-…`；运行 `forgeloop-verify-9c680b89-…`，镜像 `38a0ad14…`。 |
-| `m1-seed` | 0 | `none` | 候选包装入隔离 `m1-seed` profile；运行 `forgeloop-verify-88509aad-…`，镜像 `31af8867…`。 |
-| `real-deploy-interrupt` | 0 | `none` | 可确认与不可确认两种中断结果均完成；运行 `forgeloop-verify-517bfa4a-…`，镜像 `bec56264…`。 |
-| `m0-loop-e2e` | 0 | `none` | S1 提交 `9ee7050a…`、制品 `3548ceea…`、部署 `dep-5a52ce47-…`；S2 事件 `ops-20261123115730-5f578f` 恢复（pid 190）；S3 修复需求 `req-20261123115730-57ef7f` 提交 `1963724f…`、部署 `dep-169eb123-…`；M0-7 停止阻止推进、恢复后 `req-20261123115731-b40396` 提交；`maxVerificationAttempts=1` 时 `req-20261123115731-2ddd39` blocked；负例（越权批准、工具面无部署/批准、越界文件）全部拒绝；运行 `forgeloop-verify-234f74b7-…`，镜像 `026d7c8a…`。 |
+| 场景                    | 退出码 | 容器网络 | 结果与证据                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make.cmd e2e`          | 0      | `none`   | 隔离 profile 安装、DSH 装载与组合校验通过；看板工作区 `ws-155036ce-…`；运行 `forgeloop-verify-9c680b89-…`，镜像 `38a0ad14…`。                                                                                                                                                                                                                                                                                                                     |
+| `m1-seed`               | 0      | `none`   | 候选包装入隔离 `m1-seed` profile；运行 `forgeloop-verify-88509aad-…`，镜像 `31af8867…`。                                                                                                                                                                                                                                                                                                                                                          |
+| `real-deploy-interrupt` | 0      | `none`   | 可确认与不可确认两种中断结果均完成；运行 `forgeloop-verify-517bfa4a-…`，镜像 `bec56264…`。                                                                                                                                                                                                                                                                                                                                                        |
+| `m0-loop-e2e`           | 0      | `none`   | S1 提交 `9ee7050a…`、制品 `3548ceea…`、部署 `dep-5a52ce47-…`；S2 事件 `ops-20261123115730-5f578f` 恢复（pid 190）；S3 修复需求 `req-20261123115730-57ef7f` 提交 `1963724f…`、部署 `dep-169eb123-…`；M0-7 停止阻止推进、恢复后 `req-20261123115731-b40396` 提交；`maxVerificationAttempts=1` 时 `req-20261123115731-2ddd39` blocked；负例（越权批准、工具面无部署/批准、越界文件）全部拒绝；运行 `forgeloop-verify-234f74b7-…`，镜像 `026d7c8a…`。 |
 
 四个运行的 `container.json` 均记录 `"network": "none"`，源快照同为 `d99158cf…`；证据导出到
 `reports/docker-verification/<run>/`（未入库）。M0 的 `summary.json`、S1/S3 rollout 与 S2 事件
@@ -10138,3 +10137,39 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
   原因未定位；本批重新构建检查镜像。Debian 源返回 502，改用自带 git 的完整 `node:26.13.0-bookworm` 镜像完成检查。
 - 发现但不碰：`property-invariants-advanced.test.ts` 的既有失败（另一 Agent 在途改动）；Windows 计时断言；
   批准与实现前评审的耦合。
+
+## 274. 全量测试复查与两项既有失败修复（2026-11-24）
+
+来源：所有者要求“审查最新代码，跑全量测试，修复异常问题”。上一批（§272、§273）以 `--no-verify`
+落地的两个既有失败项在本批修复。
+
+### 274.1 修复
+
+1. **`property-invariants-advanced.test.ts` 往返断言过期**（`8051f99`）：`parseAnalysisDraft`
+   自 `8da3d6e` 起固定返回 `references`／`uiMap`／`samples`（默认空数组），属性测试仍按旧形状
+   比对，任何机器都会失败。补上三个空数组，不改属性生成器与断言语义。
+2. **超时杀进程断言的墙钟上限**（`b594275`）：`mutation-gap-verify-deep.test.ts` 两处用
+   “`verify()` 全程 < 4000ms”证明 1 秒超时生效，但全程还含快照工作区准备（复制 + git init/commit），
+   负载高时实测 5.6–14.1 秒。改为挂起命令 30 秒、上限 25 秒：超时未生效会跑满 30 秒越界，
+   生效时只需 1 秒 + 准备时间。断言语义不变（必须被杀，而不是等自然退出）。
+
+### 274.2 验证（Linux 容器为权威）
+
+本机 Windows 串行全量在本轮不可用：与另一个会话的全量运行并发时，55 分钟只完成 161/2570 项，
+且覆盖率临时文件在 01:32 后停止更新、进程空转 20 分钟以上未退出（未定位，记为环境问题）。
+改用仓库已有的 `forgeloop-check` 镜像（`node:26.13.0` + 已装 `node_modules`）叠加本批工作树：
+
+- `cd packages/forgeloop && npx vitest run`：**235 文件、2640 通过、1 跳过、0 失败**（193.65s）。
+- 同命令加 `--coverage`：2640 通过、1 跳过，**逐文件门槛无错误**，总覆盖率 98.45/93.87/99.66（201.48s）。
+- 证据：`.cache/docker-review/vitest-pkg.log`、`.cache/docker-review/vitest-coverage.log`。
+- Windows 定向：`property-invariants-advanced`（13 项）、
+  `mutation-gap-verify-deep -t timed-out`（2 项，12.8s／13.5s）均通过。
+- 合并后 `make.cmd check-static` 退出码 0。
+
+### 274.3 口径提醒
+
+在仓库根直接跑 `npx vitest run` 不会加载 `packages/forgeloop/vitest.config.ts`
+（根目录没有配置），默认 5 秒用例超时会产生 18 项误报失败；必须在 `packages/forgeloop` 下运行。
+
+发现但不碰：Windows 全量跑不动的原因（与其他会话并发、覆盖率临时目录写入停止后进程不退出）
+需要单独排查；本批没有修改任何超时门槛或跳过用例。
