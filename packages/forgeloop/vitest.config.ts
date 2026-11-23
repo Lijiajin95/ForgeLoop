@@ -7,11 +7,11 @@ export default defineConfig({
     // 测试会 spawn Git/Node 子进程；threads 池在 macOS + Node 26 下与 worker RPC 竞争会长时间挂起。
     // 统一用 forks：每个文件独立进程，子进程退出即隔离，避免超时被误判为行为失败。
     pool: 'forks',
-    // 真实 Git/子进程流程在满载（覆盖率并行）时会到 25–30 秒：单用例上限放宽到 60 秒，
-    // 仍有明确上界，挂起仍会被判失败。需要更久的个别用例单独声明超时。
-    testTimeout: 60_000,
-    // 重型夹具在 beforeAll 里起 Git/子进程；10s 默认 hook 超时在满载时会误杀。
-    hookTimeout: 60_000,
+    // 真实 Git/子进程流程在满载（覆盖率并行 + 其他会话占用）时会到 90–160 秒：
+    // 单用例上限放宽到 180 秒，仍有明确上界，挂起仍会被判失败。
+    testTimeout: 180_000,
+    // 重型夹具在 beforeAll 里起 Git/子进程；满载时同样需要更宽的上界。
+    hookTimeout: 120_000,
     // 每个测试文件会 spawn Git/Node；把并行度收敛到 4，避免 worker RPC 在满载下超时。
     maxWorkers: 4,
     coverage: {

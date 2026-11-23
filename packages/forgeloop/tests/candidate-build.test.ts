@@ -500,7 +500,7 @@ afterEach(async () => {
   }
 })
 
-describe('candidate build and deployment checks', () => {
+describe('candidate build and deployment checks', { timeout: 180_000 }, () => {
   it('builds only from the verified workspace and records the verification binding', async () => {
     const reqId = await acceptedRequirement()
     const built = await runtime.buildCandidate({ reqId, by: 'owner' })
