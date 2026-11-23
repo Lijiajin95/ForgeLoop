@@ -9987,3 +9987,72 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
   这是测试环境隔离缺口，不是本批引入。
 - 上述 4 处既存文档锚点。
 - Dockerfile 安装脚本警告与真实模型/CI 未验证项。
+
+## 270. Windows Docker Desktop 隔离环境与四场景实测（2026-11-23）
+
+本批在本机 Windows 上构造 Docker 独立隔离验证环境：安装本地引擎、构建验证镜像、实跑四个无模型场景，
+并修复 Windows 启动器把 `docker` 改写成 `docker.cmd` 的缺陷。代码改动在 worktree
+`fix/docker-win-launch` 完成，快进合并为 `403fcf9`；本记录在主工作树提交。
+
+### 270.1 环境与安装
+
+- 主机：Windows 11 家庭版 26300，Intel i7-14650HX（16 核），34 GB 内存，`HypervisorPresent=true`。
+  宿主原先没有 docker CLI/引擎；WSL 2.6.2 已启用但没有任何发行版。
+- 安装 Docker Desktop 4.100.1（`install --quiet --accept-license --backend=wsl-2`，经 UAC 提权）。
+  安装包 625,266,608 字节，Authenticode 状态 Valid、签发者为 Docker Inc。直连
+  `desktop.docker.com` 被重置，安装包经本机代理 `127.0.0.1:7897` 分次续传完成。
+- 引擎：Docker 29.9.3，API 1.56，`OSType=linux`；context 端点为
+  `npipe:////./pipe/dockerDesktopLinuxEngine`，命中 `assertLocalDockerHost` 允许的本地命名管道。
+  镜像拉取直连 Docker Hub 可用，未配置镜像加速或 registry 代理。
+- 镜像基础层 `node:26.13.0-bookworm-slim@sha256:add5c17c1475…`，与 §269 的 macOS 批次同一摘要；
+  容器内 Node v26.13.0、DSH 0.2.1-rc.5。
+- 构建输入为 Git 索引快照 `d99158cf8747…`（`main@403fcf9`）。容器内 `npm run candidate` 产物
+  `forgeloop-dsh-0.0.2.tgz`，SHA-256 `d69486ab3601…`，439,238 字节；与 §269 的 `3b22d64e…`
+  不同，因为源码快照不同。
+- 每轮单独构建镜像（四次运行镜像摘要不同），未复用上一轮镜像。
+
+### 270.2 实跑结果
+
+| 场景 | 退出码 | 容器网络 | 结果与证据 |
+| --- | --- | --- | --- |
+| `make.cmd e2e` | 0 | `none` | 隔离 profile 安装、DSH 装载与组合校验通过；看板工作区 `ws-155036ce-…`；运行 `forgeloop-verify-9c680b89-…`，镜像 `38a0ad14…`。 |
+| `m1-seed` | 0 | `none` | 候选包装入隔离 `m1-seed` profile；运行 `forgeloop-verify-88509aad-…`，镜像 `31af8867…`。 |
+| `real-deploy-interrupt` | 0 | `none` | 可确认与不可确认两种中断结果均完成；运行 `forgeloop-verify-517bfa4a-…`，镜像 `bec56264…`。 |
+| `m0-loop-e2e` | 0 | `none` | S1 提交 `9ee7050a…`、制品 `3548ceea…`、部署 `dep-5a52ce47-…`；S2 事件 `ops-20261123115730-5f578f` 恢复（pid 190）；S3 修复需求 `req-20261123115730-57ef7f` 提交 `1963724f…`、部署 `dep-169eb123-…`；M0-7 停止阻止推进、恢复后 `req-20261123115731-b40396` 提交；`maxVerificationAttempts=1` 时 `req-20261123115731-2ddd39` blocked；负例（越权批准、工具面无部署/批准、越界文件）全部拒绝；运行 `forgeloop-verify-234f74b7-…`，镜像 `026d7c8a…`。 |
+
+四个运行的 `container.json` 均记录 `"network": "none"`，源快照同为 `d99158cf…`；证据导出到
+`reports/docker-verification/<run>/`（未入库）。M0 的 `summary.json`、S1/S3 rollout 与 S2 事件
+一并导出，其 `boundary` 说明 Git、构建、Python 部署工具与运维检查/恢复均为真实执行。
+
+### 270.3 Windows 启动缺陷与修复
+
+- 现象：`make.cmd e2e` 在 `docker info` 处失败，报 `'docker.cmd' is not recognized`。
+  `scripts/ts/platform.ts` 把所有无扩展名命令一律改写成 `<name>.cmd`，`docker.exe` 因此变成
+  不存在的 `docker.cmd`。macOS/Linux 分支不经过该函数，此前批次未暴露。
+- 修复：显式 `.exe/.cmd/.bat` 原样使用；无扩展名的裸命令只在 PATH 中确有同名 `.cmd` 时加后缀，
+  否则交给 `cmd.exe` 按 PATHEXT 解析；带路径但无扩展名的目标仅在 `.cmd` 存在时改写。
+- 行为测试 `packages/forgeloop/tests/platform-launch.test.ts` 5 项覆盖两侧：裸命令无 `.cmd`
+  保持原名、PATH 中 `.cmd` 被选中、显式 `.exe` 不变、无扩展名路径有/无 `.cmd`。
+  先运行测试得到 `windowsExecutable is not a function` 失败，再实现并转绿。
+- 提交 `403fcf9` 的 pre-commit 执行 `make commit-check`（静态检查 + 全量行为测试 + 逐文件覆盖率）
+  与 `make format`，全部通过；修复后在主工作树用 `make.cmd e2e` 复跑通过。
+
+### 270.4 未验证与边界
+
+- 真实模型场景（`verify-plugin`、`verify-e2e`、`real-model-e2e`、`real-ops-e2e`、`real-self-e2e`）
+  未运行：本机没有 `FORGELOOP_TEST_DEEPSEEK_API_KEY` 或专用 Qwen 测试凭据，入口在创建容器前拒绝。
+- 未传入外部候选包，`--mount type=bind,"source=C:\…"` 的 Windows 路径与引号形态未被覆盖；
+  容器内自建候选包覆盖了安装与看板路径。
+- 性能复测、两轮并行隔离与拒绝错配场景未在本批执行。
+- `.github/workflows/quality.yml` 与 `release.yml` 的 Docker 作业仍未在 runner 实跑；
+  Windows 宿主性能与 DSH Web 浏览器验收未覆盖，Linux 容器的通过只证明 Linux 场景。
+- Docker Desktop 需要 UAC 提权安装与 WSL2 后端；本批未记录卸载与回退步骤。
+- 容器镜像构建仍有 §269 记录的 `node-pty`、`koffi`、`protobufjs` 等 install scripts 未执行警告；
+  真实模型与工具链场景启用前需要显式允许并复跑。
+
+发现但不碰：
+
+- `scripts/ts/docker-verify.ts` 在临时 Docker 配置里写死 macOS 的 `cliPluginsExtraDirs`
+  （`/opt/homebrew/...`、`/usr/local/...`）；Windows 上无害，但属既存平台假设。
+- `fileMount()` 把 `source=…` 用双引号包住后交给 `cmd.exe`，含空格或逗号的 Windows 路径未验证。
+- 在 DSH 会话内运行检查会继承宿主 `DSH_*` 变量，此问题与 §269 记录相同，本批未处理。

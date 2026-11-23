@@ -44,7 +44,7 @@ M0 仍覆盖合成需求的研发、部署与运维链路。曾读取固定生�
 
 ## 5. Docker 验证
 
-每轮用一个一次性 Linux 容器同时运行 DSH Web、测试客户端和场景脚本。macOS 通过 Colima 的专用本地 profile 提供 Docker 引擎。镜像沿用 Linux CI 的 DSH、Node、pnpm 与 Git 组合，固定版本并在构建阶段准备依赖。构建上下文只取已审阅的源码和锁文件。运行时按摘要接收单个只读候选包，在容器内创建测试 Git 仓库、DSH home 和记录库。宿主向容器提供的文件限于本轮测试输入，容器引擎套接字与宿主的生产目录、凭据和环境变量均排除在输入之外。验收结束后从本轮容器拷贝报告，再清理容器。 [Linux CI 入口](../../.github/workflows/quality.yml) · [Docker 只读挂载](https://docs.docker.com/engine/storage/bind-mounts/) · [Docker 拷贝文件](https://docs.docker.com/reference/cli/docker/container/cp/)
+每轮用一个一次性 Linux 容器同时运行 DSH Web、测试客户端和场景脚本。macOS 通过 Colima 的专用本地 profile 提供 Docker 引擎，Windows 通过 Docker Desktop 的 WSL2 后端提供本地命名管道（npipe）引擎；两者都必须连到本机引擎，不接受远端 Docker 主机。镜像沿用 Linux CI 的 DSH、Node、pnpm 与 Git 组合，固定版本并在构建阶段准备依赖。构建上下文只取已审阅的源码和锁文件。运行时按摘要接收单个只读候选包，在容器内创建测试 Git 仓库、DSH home 和记录库。宿主向容器提供的文件限于本轮测试输入，容器引擎套接字与宿主的生产目录、凭据和环境变量均排除在输入之外。验收结束后从本轮容器拷贝报告，再清理容器。 [Linux CI 入口](../../.github/workflows/quality.yml) · [Docker 只读挂载](https://docs.docker.com/engine/storage/bind-mounts/) · [Docker 拷贝文件](https://docs.docker.com/reference/cli/docker/container/cp/)
 
 1. **先验证断网冒烟。** 运行时使用 `--network none`。Web 和测试客户端通过容器内的 `127.0.0.1` 通信，宿主侧无需发布端口。先验证依赖离线可用，再验证候选试装、工作区绑定、看板和 SQLite 落点。容器使用非 root 用户，保留默认 seccomp 策略，禁用特权模式。 [Docker none 网络](https://docs.docker.com/engine/network/drivers/none/)
 2. **再运行真实模型。** 使用相同候选包、镜像和测试材料开启新的容器。仅注入专用测试凭据，使用 IPv4 isolated 的内部网络，模型流量经本轮创建的 HTTPS CONNECT 代理转发到显式允许的模型服务器。无法创建或核对隔离网络时终止运行。
