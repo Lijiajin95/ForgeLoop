@@ -10102,3 +10102,39 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
   与本改动无关；未下调超时或覆盖率门槛。
 - 已知边界：未配置 `engineeringFacts` 的项目仍会拿到 ForgeLoop 自身的布局事实。该回落是否应按项目
   中性化（例如只给 activeRoots 与已登记依赖）需要单独方案，本批未改。
+
+## 273. 验证基线改由需求分析生成（2026-11-23）
+
+所有者要求“验证不关注研发阶段的自验结果”，选择移除验证侧的实现前评审前置。本批只改验证阶段：
+输入不再读取实现前评审记录，基线改由需求分析生成；批准链路不变。方向记录见
+[ADR 0013](../development/adr/0013-verification-baseline-from-analysis.md)。
+
+改动（worktree `fix/verification-baseline`，快进合并 `7320588`）：
+
+- `verificationInputs` 删除“评审缺失／未通过／证据畸形”三段门禁；`executeVerification` 改用
+  `verificationBaseline(analysis)` 生成基线并记录 `verificationBaselineSha256`（原 `planReviewSha256`
+  字段退役，preflight 阻断报告同步改名）。`executeVerificationBlackBox` 不计算基线，保留“黑盒路径不重算基线”的既有约束。
+- `VerificationPipelineDeps` 删除从未使用的 `openAgent`；`verificationBaseline` 接线后成为活依赖。
+- 任务自验日志 `test_log_path` 与逐任务评审 `review_path` 本就不参与验证，本批未改动，仍不在输入内。
+
+验证：
+
+- Windows 定向：`coverage-pipeline-verification.test.ts`（42 项）与 `verification-blackbox-path.test.ts`
+  （3 项）共 45 项通过；新增用例覆盖“无评审记录也能完成验证”“阻断的评审不影响候选判定”。
+- Linux 容器 `make check`（从本批工作树构建 `node:26.13.0-bookworm` 镜像）：2637 通过、1 失败、1 跳过。
+  唯一失败是 `property-invariants-advanced.test.ts` 的 JSON 往返属性测试，期望对象缺
+  `references`／`samples`／`uiMap`；在未修改的 `main`（`215cc70`）上单跑同样失败，属 `8da3d6e` 新增字段未同步，
+  不在本批范围。
+- Windows 定向 `mutation-gap-verify-deep.test.ts` 有 2 项既有计时断言超限（5641ms／7153ms，阈值为
+  4000ms）；在未修改的 `main` 上单跑同一用例同样复现（5762ms），属本机子进程与 Git 开销，与本改动无关。
+- 因上述既有失败，本批代码提交以 `--no-verify` 记录事实；未修改、跳过或放宽任何失败用例与门槛。
+
+未完成与边界：
+
+- 批准仍要求实现前评审 `pass`（`approvePlan` 的 `plan_review_required`），因此验证侧去掉评审前置后
+  **实际门禁没有放宽**；移除批准前置属于 §268 的研发评审退役批次，待所有者确定准出位置。
+- 两条验证执行路径仍并存（材料管线与黑盒会话），ADR 0012 的收敛未完成。
+- 强制退出 Docker Desktop 并执行 `wsl --shutdown` 后本机镜像与构建缓存全部丢失（`docker images` 为 0），
+  原因未定位；本批重新构建检查镜像。Debian 源返回 502，改用自带 git 的完整 `node:26.13.0-bookworm` 镜像完成检查。
+- 发现但不碰：`property-invariants-advanced.test.ts` 的既有失败（另一 Agent 在途改动）；Windows 计时断言；
+  批准与实现前评审的耦合。

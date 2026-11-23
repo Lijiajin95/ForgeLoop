@@ -274,6 +274,13 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      每条命令记录冻结摘要，正向与错误对照必须复用同一份材料。
    - 任务交付、定向修复和受控提交都按实际 diff 校验 `activeRoots`：目录按路径边界匹配，文件按完整路径匹配；
      计划文件合法但实际改动越界同样阻断。
+   - **两条验证执行路径并存**：连续推进调用 `VerificationPipeline.executeVerification`（测试 Agent 只写
+     `verification/` 材料，命令由程序在固定候选上执行并判定）；显式“独立测试”请求调用
+     `executeVerificationBlackBox`，复用下文的黑盒会话（测试 Agent 只挂 check/material 工具，经工具逐条执行）。
+     两条路径共用候选身份、`verification.json` 与失败分类，材料形态与判定入口不同；收敛见 [ADR 0012](adr/0012-single-verification-path.md)。
+   - **验证基线来自需求分析**：材料管线比对用的场景基线由 `verificationBaseline(analysis)` 生成（分析的每个
+     业务场景都是必过场景，验收标准按序对应），验证阶段不读取实现前评审记录，也不读取任务自验日志与逐任务评审；
+     报告记录 `verificationBaselineSha256`。批准链路仍要求实现前评审 `pass`，该前置的退役不在验证批次（[ADR 0013](adr/0013-verification-baseline-from-analysis.md)）。
    - **准入后、研发开始前**为测试 Agent 新开一个会话并保持到本次推进结束：该会话只挂
      `forgeloop_run_verification_check`、`forgeloop_write_verification_material` 两个工具
      （`allowTools`），cwd 是真实项目目录。测试 Agent 是独立黑盒测试人员：不读取源码、不接触候选 diff、
