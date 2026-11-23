@@ -8,7 +8,7 @@
  * 调用方必须把 `spawnOptions` 一并传给 `spawn`/`spawnSync`。
  */
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 
 export const IS_WINDOWS = process.platform === 'win32'
@@ -40,17 +40,26 @@ function quoteWindowsArg(value: string): string {
   return quoted
 }
 
-function windowsExecutable(target: string): string {
+/** 把命令解析成 Windows 上实际可执行的名字：只有存在 `.cmd` 包装时才加后缀。 */
+export function windowsExecutable(
+  target: string,
+  exists: (path: string) => boolean,
+  pathEntries: readonly string[],
+): string {
   if (/\.(?:exe|cmd|bat)$/i.test(target)) return target
-  const withCommandExtension = `${target}.cmd`
-  if (!target.includes('/') && !target.includes('\\')) return withCommandExtension
-  return existsSync(withCommandExtension) ? withCommandExtension : target
+  const shim = `${target}.cmd`
+  if (target.includes('/') || target.includes('\\')) return exists(shim) ? shim : target
+  return pathEntries.some((entry) => entry !== '' && exists(join(entry, shim))) ? shim : target
 }
 
 /** 把命令与参数转换成当前平台可启动的形式。 */
 export function launch(target: string, args: readonly string[]): Launch {
   if (!IS_WINDOWS) return { file: target, args }
-  const executable = windowsExecutable(target)
+  const executable = windowsExecutable(
+    target,
+    existsSync,
+    (process.env.PATH ?? '').split(delimiter),
+  )
   if (/\.exe$/i.test(executable)) return { file: executable, args }
   const line = [executable, ...args].map(quoteWindowsArg).join(' ')
   return {
