@@ -1,6 +1,7 @@
 import type { Repository } from '../records/repository.js'
 import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analysis.js'
 import { specChanges, type SpecChanges } from '../domain/spec.js'
+import { analysisSpecOf, requirementStageGaps, type StageGap } from '../domain/spec.js'
 
 export interface RequirementDetailExtras {
   readonly analysisHistory: ReturnType<Repository['analyses']>
@@ -17,6 +18,8 @@ export interface RequirementDetailExtras {
   readonly analysisActivity: readonly AnalysisAttemptView[]
   /** 验证阶段：按候选与尝试排列的验证记录，含结论、失败分类与阻塞原因。 */
   readonly verificationActivity: readonly VerificationAttemptView[]
+  /** 当前分析版本仍缺的需求阶段材料；只报告，不改变准入结论。 */
+  readonly stageGaps: readonly StageGap[]
 }
 
 /** 一次阶段活动最多返回最近多少条；页面只需要可读摘要，完整轨迹留在证据目录。 */
@@ -90,5 +93,6 @@ export function requirementDetailExtras(
       sessionId: attempt.sessionId,
       verifiedAt: attempt.verifiedAt,
     })),
+    stageGaps: latest ? requirementStageGaps(analysisSpecOf(latest)) : [],
   }
 }

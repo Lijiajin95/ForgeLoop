@@ -483,13 +483,24 @@ describe('analysis spec reference and completion rules', () => {
       validateSpec({ ...complete, spec: { ...base, acceptance: [], points: [] } }),
     ).toThrow('没有待澄清项时必须给出业务要点')
 
-    // 项目约定依据必须能定位到真实存在的 Markdown 文档；两条正向路径都要可用。
+    // 项目约定依据必须能定位到真实存在的 Markdown 文档，并附可回查的摘录；两条正向路径都要可用。
     expect(() =>
       validateSpec({
         ...complete,
         spec: {
           ...base,
           points: [{ ...point, basis: 'project_convention', source: 'docs/a.md#章节' }],
+          references: [
+            {
+              id: 'REF-1',
+              kind: 'project_doc',
+              locator: 'docs/a.md#章节',
+              version: '2026-11-20',
+              excerpt: '批量操作需二次确认',
+              pointIds: ['BP-1'],
+              acceptanceIds: [],
+            },
+          ],
         },
         projectDocExists: () => true,
       }),
@@ -500,6 +511,17 @@ describe('analysis spec reference and completion rules', () => {
         spec: {
           ...base,
           points: [{ ...point, basis: 'external_material', source: 'https://example.com/a' }],
+          references: [
+            {
+              id: 'REF-1',
+              kind: 'external_source',
+              locator: 'https://example.com/a',
+              version: '2026-11-20',
+              excerpt: '行业规范要求批量操作二次确认',
+              pointIds: ['BP-1'],
+              acceptanceIds: [],
+            },
+          ],
         },
       }),
     ).not.toThrow()

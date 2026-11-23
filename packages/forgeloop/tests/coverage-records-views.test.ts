@@ -835,6 +835,7 @@ describe('requirement detail extras', () => {
       clarificationHistory: { questions: [], answers: [] },
       analysisActivity: [],
       verificationActivity: [],
+      stageGaps: [],
       specChanges: {
         addedPoints: [],
         changedPoints: [],

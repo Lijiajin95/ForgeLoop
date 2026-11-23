@@ -143,6 +143,17 @@ describe('business point sources', () => {
         business_points: [
           point({ basis: 'project_convention', source: 'docs/conventions.md#批量操作' }),
         ],
+        references: [
+          {
+            id: 'REF-1',
+            kind: 'project_doc',
+            locator: 'docs/conventions.md#批量操作',
+            version: '2026-11-20',
+            excerpt: '批量操作需二次确认。',
+            point_ids: ['BP-1'],
+            acceptance_ids: [],
+          },
+        ],
       }),
     )
     const reqId = submit(okRuntime)

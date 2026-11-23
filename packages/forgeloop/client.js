@@ -1062,6 +1062,25 @@ window.__ModuleLoader__.load({
       'detail.specNewQuestions': '新待澄清',
       'detail.specAssumption': '假设',
       'detail.specNeedsConfirm': '待确认',
+      'detail.specReferences': '查证依据',
+      'detail.specUiMap': '功能地图与界面',
+      'detail.specSamples': '验收样例',
+      'detail.specGaps': '待补材料',
+      'detail.specRefVersion': '适用版本',
+      'detail.specRefExcerpt': '摘录',
+      'detail.specRefMapped': '关联',
+      'detail.specUiStates': '适用状态',
+      'detail.specUiPrototype': '原型',
+      'detail.specSampleNormal': '正常样例',
+      'detail.specSampleCounter': '反例',
+      'detail.specSampleData': '数据',
+      'detail.specSamplePrecondition': '前置',
+      'detail.specSampleSteps': '操作',
+      'detail.specSampleExpected': '预期',
+      'detail.specSampleObserve': '观察位置',
+      'detail.specNoReferences': '尚未提供带适用版本与摘录的查证依据。',
+      'detail.specNoUiMap': '本需求未声明界面或用户路径变化。',
+      'detail.specNoSamples': '尚未提供固定数据、操作与独立预期的验收样例。',
       'detail.specWorkingAssumption': '工作假设',
       'detail.specPoint': '用户/角色',
       'detail.specTrigger': '触发',
@@ -1795,6 +1814,25 @@ window.__ModuleLoader__.load({
       'detail.specNewQuestions': 'New clarifications',
       'detail.specAssumption': 'Assumption',
       'detail.specNeedsConfirm': 'Needs confirmation',
+      'detail.specReferences': 'Evidence and references',
+      'detail.specUiMap': 'Functional map and UI',
+      'detail.specSamples': 'Acceptance samples',
+      'detail.specGaps': 'Missing material',
+      'detail.specRefVersion': 'Applies to',
+      'detail.specRefExcerpt': 'Excerpt',
+      'detail.specRefMapped': 'Mapped to',
+      'detail.specUiStates': 'States',
+      'detail.specUiPrototype': 'Prototype',
+      'detail.specSampleNormal': 'Normal sample',
+      'detail.specSampleCounter': 'Counter-example',
+      'detail.specSampleData': 'Data',
+      'detail.specSamplePrecondition': 'Precondition',
+      'detail.specSampleSteps': 'Steps',
+      'detail.specSampleExpected': 'Expected',
+      'detail.specSampleObserve': 'Observe at',
+      'detail.specNoReferences': 'No reference with an applicable version and excerpt yet.',
+      'detail.specNoUiMap': 'This requirement declares no interface or user-path change.',
+      'detail.specNoSamples': 'No acceptance sample with fixed data, steps and an independent expectation yet.',
       'detail.specWorkingAssumption': 'Working assumption',
       'detail.specPoint': 'Actor',
       'detail.specTrigger': 'Trigger',
@@ -3691,6 +3729,99 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function referenceView(t, analysis) {
+      const items = Array.isArray(analysis.references) ? analysis.references : []
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'references' },
+        h('div', { className: 'flb-label' }, t('detail.specReferences')),
+        items.length === 0
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoReferences'))
+          : items.map((item) =>
+              h(
+                'div',
+                { key: item.id },
+                `${item.id} · ${item.kind} · ${item.locator}`,
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specRefVersion')}：${item.version} · ${t('detail.specRefMapped')}：${[...(item.pointIds || []), ...(item.acceptanceIds || [])].join('、')}`,
+                ),
+                h('div', null, `${t('detail.specRefExcerpt')}：${item.excerpt}`),
+              ),
+            ),
+      )
+    }
+
+    function uiMapView(t, analysis) {
+      const items = Array.isArray(analysis.uiMap) ? analysis.uiMap : []
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'ui-map' },
+        h('div', { className: 'flb-label' }, t('detail.specUiMap')),
+        items.length === 0
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoUiMap'))
+          : items.map((item) =>
+              h(
+                'div',
+                { key: item.id },
+                `${item.id} · ${item.entry} → ${item.path}`,
+                h('div', null, item.feedback),
+                item.states && item.states.length > 0
+                  ? h(
+                      'div',
+                      { className: 'flb-muted' },
+                      `${t('detail.specUiStates')}：${item.states.join('、')}`,
+                    )
+                  : null,
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specRefMapped')}：${[...(item.pointIds || []), ...(item.acceptanceIds || [])].join('、')}`,
+                  item.prototypeRef
+                    ? ` · ${t('detail.specUiPrototype')}：${item.prototypeRef}${item.prototypeVersion ? ` (${item.prototypeVersion})` : ''}`
+                    : '',
+                ),
+              ),
+            ),
+      )
+    }
+
+    function sampleView(t, analysis) {
+      const items = Array.isArray(analysis.samples) ? analysis.samples : []
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'samples' },
+        h('div', { className: 'flb-label' }, t('detail.specSamples')),
+        items.length === 0
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoSamples'))
+          : items.map((item) =>
+              h(
+                'div',
+                { key: item.id },
+                `${item.id} · ${item.kind === 'counter_example' ? t('detail.specSampleCounter') : t('detail.specSampleNormal')} · ${(item.acceptanceIds || []).join('、')}`,
+                h('div', { className: 'flb-muted' }, `${t('detail.specSampleData')}：${item.data}`),
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specSamplePrecondition')}：${item.precondition}`,
+                ),
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specSampleSteps')}：${(item.steps || []).join(' → ')}`,
+                ),
+                h('div', null, `${t('detail.specSampleExpected')}：${item.expected}`),
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specSampleObserve')}：${item.observeAt}`,
+                ),
+              ),
+            ),
+      )
+    }
+
     function pointView(t, point, acceptance) {
       const items = acceptance.filter(
         (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
@@ -3778,6 +3909,17 @@ window.__ModuleLoader__.load({
           : null,
         h('div', { className: 'flb-label', key: 'points-label' }, t('detail.specPoints')),
         ...points.map((point) => pointView(t, point, acceptance)),
+        referenceView(t, analysis),
+        uiMapView(t, analysis),
+        sampleView(t, analysis),
+        Array.isArray(data.stageGaps) && data.stageGaps.length > 0
+          ? h(
+              'div',
+              { className: 'flb-block-warn', key: 'gaps' },
+              h('div', { className: 'flb-label' }, t('detail.specGaps')),
+              h(BulletList, { items: data.stageGaps.map((gap) => gap.detail) }),
+            )
+          : null,
         assumptions.length > 0
           ? h(
               'div',

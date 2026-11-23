@@ -56,11 +56,67 @@ export interface CommitmentConflict {
   readonly decisionNeeded: string
 }
 
+export type ReferenceKind = 'project_doc' | 'external_source' | 'library_entry' | 'owner_decision'
+
+const REFERENCE_KINDS: readonly ReferenceKind[] = [
+  'project_doc',
+  'external_source',
+  'library_entry',
+  'owner_decision',
+]
+
+export interface EvidenceReference {
+  readonly id: string
+  readonly kind: ReferenceKind
+  readonly locator: string
+  readonly version: string
+  readonly excerpt: string
+  readonly pointIds: readonly string[]
+  readonly acceptanceIds: readonly string[]
+}
+
+export interface UiMapEntry {
+  readonly id: string
+  readonly entry: string
+  readonly path: string
+  readonly feedback: string
+  readonly states: readonly string[]
+  readonly pointIds: readonly string[]
+  readonly acceptanceIds: readonly string[]
+  readonly prototypeRef: string
+  readonly prototypeVersion: string
+}
+
+export type SampleKind = 'normal' | 'counter_example'
+
+const SAMPLE_KINDS: readonly SampleKind[] = ['normal', 'counter_example']
+
+export interface AcceptanceSample {
+  readonly id: string
+  readonly kind: SampleKind
+  readonly acceptanceIds: readonly string[]
+  readonly data: string
+  readonly precondition: string
+  readonly steps: readonly string[]
+  readonly expected: string
+  readonly observeAt: string
+}
+
 export interface AnalysisSpec {
   readonly points: readonly BusinessPoint[]
   readonly acceptance: readonly AcceptanceCriterion[]
   readonly assumptions: readonly Assumption[]
   readonly conflicts: readonly CommitmentConflict[]
+  readonly references: readonly EvidenceReference[]
+  readonly uiMap: readonly UiMapEntry[]
+  readonly samples: readonly AcceptanceSample[]
+}
+
+/** 校验入口接受的规格：历史记录与调用方可能还没有本轮新增的产物。 */
+export type SpecInput = Omit<AnalysisSpec, 'references' | 'uiMap' | 'samples'> & {
+  readonly references?: readonly EvidenceReference[] | undefined
+  readonly uiMap?: readonly UiMapEntry[] | undefined
+  readonly samples?: readonly AcceptanceSample[] | undefined
 }
 
 /** 只需规格字段的分析投影；避免 domain/requirement 与 domain/spec 形成循环依赖。 */
@@ -69,6 +125,9 @@ export interface SpecBearingAnalysis {
   readonly acceptanceItems?: readonly AcceptanceCriterion[] | undefined
   readonly assumptions?: readonly Assumption[] | undefined
   readonly conflicts?: readonly CommitmentConflict[] | undefined
+  readonly references?: readonly EvidenceReference[] | undefined
+  readonly uiMap?: readonly UiMapEntry[] | undefined
+  readonly samples?: readonly AcceptanceSample[] | undefined
   readonly clarifications?: readonly string[] | undefined
 }
 
@@ -79,6 +138,9 @@ export interface ParsedSpecFields extends AnalysisSpec {
 const POINT_ID = /^BP-(\d+)$/
 const ACCEPTANCE_ID = /^AC-(\d+)$/
 const ASSUMPTION_ID = /^AS-(\d+)$/
+const REFERENCE_ID = /^REF-(\d+)$/
+const UI_MAP_ID = /^UI-(\d+)$/
+const SAMPLE_ID = /^SMP-(\d+)$/
 
 function nonEmpty(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -237,6 +299,92 @@ function parseConflicts(raw: unknown): CommitmentConflict[] {
   })
 }
 
+function parseReferences(raw: unknown): EvidenceReference[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 references 必须是数组')
+  return raw.map((item, index) => {
+    const field = `references[${index}]`
+    const data = objectAt(item, field)
+    const kind = REFERENCE_KINDS.find((candidate) => candidate === data.kind)
+    if (!kind) {
+      throw new MalformedError(
+        `分析字段 ${field}.kind 必须是 project_doc、external_source、library_entry 或 owner_decision`,
+      )
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      kind,
+      locator: nonEmpty(data.locator, `${field}.locator`),
+      version: nonEmpty(data.version, `${field}.version`),
+      excerpt: nonEmpty(data.excerpt, `${field}.excerpt`),
+      pointIds: stringList(data.point_ids ?? data.pointIds, `${field}.point_ids`),
+      acceptanceIds: stringList(
+        data.acceptance_ids ?? data.acceptanceIds,
+        `${field}.acceptance_ids`,
+      ),
+    } satisfies EvidenceReference
+  })
+}
+
+function parseUiMap(raw: unknown): UiMapEntry[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 ui_map 必须是数组')
+  return raw.map((item, index) => {
+    const field = `ui_map[${index}]`
+    const data = objectAt(item, field)
+    const prototypeRef = typeof data.prototype_ref === 'string' ? data.prototype_ref.trim() : ''
+    const prototypeVersion =
+      typeof data.prototype_version === 'string' ? data.prototype_version.trim() : ''
+    if (prototypeVersion && !prototypeRef) {
+      throw new MalformedError(`${field} 给出原型版本时必须同时给出原型引用`)
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      entry: nonEmpty(data.entry, `${field}.entry`),
+      path: nonEmpty(data.path, `${field}.path`),
+      feedback: nonEmpty(data.feedback, `${field}.feedback`),
+      states: stringList(data.states, `${field}.states`),
+      pointIds: stringList(data.point_ids ?? data.pointIds, `${field}.point_ids`),
+      acceptanceIds: stringList(
+        data.acceptance_ids ?? data.acceptanceIds,
+        `${field}.acceptance_ids`,
+      ),
+      prototypeRef,
+      prototypeVersion,
+    } satisfies UiMapEntry
+  })
+}
+
+function parseSamples(raw: unknown): AcceptanceSample[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 samples 必须是数组')
+  return raw.map((item, index) => {
+    const field = `samples[${index}]`
+    const data = objectAt(item, field)
+    const kind = SAMPLE_KINDS.find((candidate) => candidate === data.kind)
+    if (!kind) {
+      throw new MalformedError(`分析字段 ${field}.kind 必须是 normal 或 counter_example`)
+    }
+    const steps = stringList(data.steps, `${field}.steps`)
+    if (steps.length === 0) {
+      throw new MalformedError(`${field}.steps 必须给出至少一步操作`)
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      kind,
+      acceptanceIds: stringList(
+        data.acceptance_ids ?? data.acceptanceIds,
+        `${field}.acceptance_ids`,
+      ),
+      data: nonEmpty(data.data, `${field}.data`),
+      precondition: nonEmpty(data.precondition, `${field}.precondition`),
+      steps,
+      expected: nonEmpty(data.expected, `${field}.expected`),
+      observeAt: nonEmpty(data.observe_at ?? data.observeAt, `${field}.observe_at`),
+    } satisfies AcceptanceSample
+  })
+}
+
 export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields {
   const rawPoints = data.business_points
   if (rawPoints !== undefined && !Array.isArray(rawPoints)) {
@@ -250,7 +398,19 @@ export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields
   }
   const assumptions = (rawAssumptions ?? []).map((item, index) => parseAssumption(item, index))
   const conflicts = parseConflicts(data.conflicts)
-  return { points, acceptance, assumptions, conflicts, acceptanceCriteria }
+  const references = parseReferences(data.references)
+  const uiMap = parseUiMap(data.ui_map)
+  const samples = parseSamples(data.samples)
+  return {
+    points,
+    acceptance,
+    assumptions,
+    conflicts,
+    references,
+    uiMap,
+    samples,
+    acceptanceCriteria,
+  }
 }
 
 function maxId(items: readonly { id: string }[], pattern: RegExp, label: string): number {
@@ -298,7 +458,7 @@ function stableIds(
 }
 
 export interface SpecValidationInput {
-  readonly spec: AnalysisSpec
+  readonly spec: SpecInput
   readonly complete: boolean
   readonly inputKind: 'requirement' | 'problem'
   readonly previous?: AnalysisSpec | null | undefined
@@ -354,6 +514,124 @@ function validateIds(
   stableIds(spec.points, previous?.points ?? [], '业务要点', historicalIds)
   stableIds(spec.acceptance, previous?.acceptance ?? [], '验收项', historicalIds)
   stableIds(spec.assumptions, previous?.assumptions ?? [], '假设', historicalIds)
+  validateArtifactIds(spec.references, REFERENCE_ID, '查证依据', 'REF')
+  validateArtifactIds(spec.uiMap, UI_MAP_ID, '功能地图', 'UI')
+  validateArtifactIds(spec.samples, SAMPLE_ID, '验收样例', 'SMP')
+}
+
+function validateArtifactIds(
+  items: readonly { readonly id: string }[],
+  pattern: RegExp,
+  label: string,
+  prefix: string,
+): void {
+  uniqueIds(items, label)
+  for (const item of items) {
+    if (!pattern.test(item.id)) {
+      throw new MalformedError(`${label}编号必须形如 ${prefix}-1，实际 ${item.id}`)
+    }
+  }
+}
+
+function requireMappedIds(
+  item: {
+    readonly id: string
+    readonly pointIds: readonly string[]
+    readonly acceptanceIds: readonly string[]
+  },
+  label: string,
+  known: { readonly points: ReadonlySet<string>; readonly acceptance: ReadonlySet<string> },
+): void {
+  if (item.pointIds.length === 0 && item.acceptanceIds.length === 0) {
+    throw new MalformedError(`${label} ${item.id} 必须至少关联一个业务要点或验收项`)
+  }
+  for (const pointId of item.pointIds) {
+    if (!known.points.has(pointId)) {
+      throw new MalformedError(`${label} ${item.id} 关联了不存在的业务要点 ${pointId}`)
+    }
+  }
+  for (const acceptanceId of item.acceptanceIds) {
+    if (!known.acceptance.has(acceptanceId)) {
+      throw new MalformedError(`${label} ${item.id} 关联了不存在的验收项 ${acceptanceId}`)
+    }
+  }
+}
+
+function validateReferenceLocator(
+  reference: EvidenceReference,
+  projectDocExists: ((relative: string) => boolean) | undefined,
+): void {
+  const locator = reference.locator.split('#')[0]?.trim() ?? ''
+  if (reference.kind === 'project_doc' && (!locator || !projectDocExists?.(locator))) {
+    throw new MalformedError(
+      `查证依据 ${reference.id} 引用的项目文档不存在或不可读：${reference.locator}`,
+    )
+  }
+  if (reference.kind === 'external_source' && !/^https?:\/\/\S+$/u.test(reference.locator)) {
+    throw new MalformedError(
+      `查证依据 ${reference.id} 的外部资料必须是 http(s) 地址：${reference.locator}`,
+    )
+  }
+}
+
+function validateArtifacts(spec: AnalysisSpec, input: SpecValidationInput): void {
+  const known = {
+    points: new Set(spec.points.map((point) => point.id)),
+    acceptance: new Set(spec.acceptance.map((item) => item.id)),
+  }
+  for (const reference of spec.references) {
+    requireMappedIds(reference, '查证依据', known)
+    validateReferenceLocator(reference, input.projectDocExists)
+  }
+  for (const entry of spec.uiMap) requireMappedIds(entry, '功能地图', known)
+  for (const sample of spec.samples) {
+    if (sample.acceptanceIds.length === 0) {
+      throw new MalformedError(`验收样例 ${sample.id} 必须关联至少一个验收项`)
+    }
+    requireMappedIds(
+      { id: sample.id, pointIds: [], acceptanceIds: sample.acceptanceIds },
+      '验收样例',
+      known,
+    )
+  }
+  const coveredByReference = new Set(spec.references.flatMap((item) => item.pointIds))
+  for (const point of spec.points) {
+    if (point.basis !== 'user_requirement' && !coveredByReference.has(point.id)) {
+      throw new MalformedError(
+        `业务要点 ${point.id} 的依据是 ${point.basis}；必须在 references 中给出可回查的摘录、适用版本与关联`,
+      )
+    }
+  }
+}
+
+export type StageGapCode = 'samples' | 'counter_example' | 'references'
+
+export interface StageGap {
+  readonly code: StageGapCode
+  readonly detail: string
+}
+
+export function requirementStageGaps(spec: AnalysisSpec): StageGap[] {
+  const gaps: StageGap[] = []
+  const references = spec.references
+  const samples = spec.samples
+  const uiMap = spec.uiMap
+  const covered = new Set(references.flatMap((reference) => reference.pointIds))
+  for (const point of spec.points) {
+    if (point.basis !== 'user_requirement' && !covered.has(point.id)) {
+      gaps.push({
+        code: 'references',
+        detail: `业务要点 ${point.id} 缺少带适用版本与摘录的查证依据`,
+      })
+    }
+  }
+  if (spec.points.length > 0 && samples.length === 0) {
+    gaps.push({ code: 'samples', detail: '尚未提供固定数据、操作与独立预期的验收样例' })
+  }
+  if (uiMap.length > 0 && !samples.some((sample) => sample.kind === 'counter_example')) {
+    gaps.push({ code: 'counter_example', detail: '界面变化的需求尚未提供能暴露错误行为的反例' })
+  }
+  return gaps
 }
 
 function validateReferences(spec: AnalysisSpec): void {
@@ -398,13 +676,22 @@ function validateComplete(spec: AnalysisSpec): void {
 }
 
 export function validateSpec(input: SpecValidationInput): void {
-  const { spec, complete, inputKind, previous } = input
+  const { complete, inputKind, previous } = input
+  const spec: AnalysisSpec = {
+    ...input.spec,
+    references: input.spec.references ?? [],
+    uiMap: input.spec.uiMap ?? [],
+    samples: input.spec.samples ?? [],
+  }
   if (inputKind === 'problem') {
     if (
       spec.points.length > 0 ||
       spec.acceptance.length > 0 ||
       spec.assumptions.length > 0 ||
-      spec.conflicts.length > 0
+      spec.conflicts.length > 0 ||
+      spec.references.length > 0 ||
+      spec.uiMap.length > 0 ||
+      spec.samples.length > 0
     ) {
       throw new MalformedError('问题输入不做业务要点拆解；只给现象与可检查的修复判据')
     }
@@ -413,6 +700,7 @@ export function validateSpec(input: SpecValidationInput): void {
   validateIds(spec, previous, input.historicalIds ?? [])
   validateReferences(spec)
   for (const point of spec.points) validatePointSource(point, input)
+  validateArtifacts(spec, input)
   validateConflicts(spec, input)
   if (complete) validateComplete(spec)
 }
@@ -434,6 +722,9 @@ export function analysisSpecOf(analysis: SpecBearingAnalysis): AnalysisSpec {
     acceptance: analysis.acceptanceItems ?? [],
     assumptions: analysis.assumptions ?? [],
     conflicts: analysis.conflicts ?? [],
+    references: analysis.references ?? [],
+    uiMap: analysis.uiMap ?? [],
+    samples: analysis.samples ?? [],
   }
 }
 

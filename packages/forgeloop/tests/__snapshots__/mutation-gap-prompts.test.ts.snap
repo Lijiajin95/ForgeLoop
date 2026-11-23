@@ -62,8 +62,7 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
       "then": "可观察到的业务结果；不能只写“正常”“体验好”"
     }
   ],
-  "assumptions": [
-    {
+  "assumptions": [    {
       "id": "AS-1",
       "statement": "尚未验证的推断或外部假设，不要写成已确认业务规则",
       "basis": "inference 或 external_material",
@@ -79,6 +78,42 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
       "conflict": "这次输入与哪个承诺冲突、为什么不能同时满足",
       "options": ["至少两种可比较的取舍，例如保留旧承诺 / 采用新要求并放弃什么"],
       "decision_needed": "需要所有者决定什么"
+    }
+  ],
+  "references": [
+    {
+      "id": "REF-1，稳定编号",
+      "kind": "project_doc、external_source、library_entry 或 owner_decision",
+      "locator": "project_doc 写项目内 Markdown 路径（可带 #小节）、external_source 写 http(s) 地址、library_entry 写条目 id、owner_decision 写决定编号",
+      "version": "适用版本或日期，例如 2026-11-20、v2、库条目 updatedAt",
+      "excerpt": "支持结论的原文摘录或观测结果，不能只写“文档里说过”",
+      "point_ids": ["BP-1"],
+      "acceptance_ids": ["AC-1"]
+    }
+  ],
+  "ui_map": [
+    {
+      "id": "UI-1，稳定编号；本需求不涉及界面或用户路径变化时留空数组",
+      "entry": "受影响的入口，例如 天工 → 工作台 → 按需求",
+      "path": "用户实际操作路径",
+      "feedback": "用户可见的反馈或状态变化",
+      "states": ["适用状态，例如 空列表、加载失败"],
+      "point_ids": ["BP-1"],
+      "acceptance_ids": ["AC-1"],
+      "prototype_ref": "已有原型或设计稿路径；没有就留空字符串",
+      "prototype_version": "原型版本；没有就留空字符串"
+    }
+  ],
+  "samples": [
+    {
+      "id": "SMP-1，稳定编号",
+      "kind": "normal 或 counter_example",
+      "acceptance_ids": ["AC-1"],
+      "data": "固定数据或固定输入",
+      "precondition": "前置条件",
+      "steps": ["逐步操作，至少一步"],
+      "expected": "独立写出的预期结果，不能只写“正常”",
+      "observe_at": "从哪里观察，例如 页面提示、接口返回字段、日志行"
     }
   ],
   "clarifications": ["本轮新发现的、确实阻塞实施的待澄清问题；没有就留空数组；问题输入必须为空"],
@@ -114,7 +149,7 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
 
 规则：
 - 先分诊再分析：input_kind 只能是 requirement 或 problem。输入提出新的业务能力、业务规则或流程变化时是 requirement；输入描述已经发生或可观察的缺陷、报错、行为与预期不符，只需要修好时是 problem。判断不定时按 requirement，交给产品澄清。
-- 问题输入：goal 写现象与影响，scenarios 写现象与复现要点（可留空），acceptance_criteria 仍用字符串数组写可检查的修复判据（至少一条，必须写清前提、操作与可观察结果，不接受空白或“正常/修好”这类占位）；business_points / assumptions / conflicts 必须为空数组；business_rules / exceptions / non_goals 只写问题本身必须成立的约束；clarifications 与 clarification_updates 必须为空——问题不做产品侧澄清，程序会直接交研发定位根因并做最小修复。
+- 问题输入：goal 写现象与影响，scenarios 写现象与复现要点（可留空），acceptance_criteria 仍用字符串数组写可检查的修复判据（至少一条，必须写清前提、操作与可观察结果，不接受空白或“正常/修好”这类占位）；business_points / assumptions / conflicts / references / ui_map / samples 必须为空数组；business_rules / exceptions / non_goals 只写问题本身必须成立的约束；clarifications 与 clarification_updates 必须为空——问题不做产品侧澄清，程序会直接交研发定位根因并做最小修复。
 - 需求输入：按下面的规则做需求分析，并把需要所有者回答的问题放进 clarifications。
 - 处理已有澄清：上面“已记录的澄清问答”列出问题原文、回答与处理结果。每个仍未解决的问题必须在 clarification_updates 中逐项出现，不能遗漏、不能编造编号；已回答或已解决的问题不得在无新证据时重新提问、改写或推翻。回答只覆盖部分问题时，未覆盖的问题保持 open 并写明 reason；不得因为只回答了一部分就丢掉其余问题。
 - clarifications 只写本轮新发现的问题；不要重复把 clarification_updates 中仍为 open 的旧问题抄进 clarifications。
@@ -122,6 +157,9 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
 - 业务要点是业务粒度，不是文件清单、实现步骤或研发任务；不要输出要改哪个文件、用什么库或怎么做。
 - 依据必须可回查：user_requirement 的 source 必须逐字引用当前需求版本中的用户原文（可带“需求原文：”前缀，但不要改写）；project_convention 的 source 必须是项目中真实存在的 Markdown 文档路径（如 docs/xxx.md，可带 #小节）；external_material 的 source 必须是 http(s) 地址。外部资料不能自动当成用户要求，模型推断只能写进 assumptions，不能写成业务要点或已确认规则。
 - 冲突处理：只有当这次输入与项目事实中的已有承诺无法同时满足时，才写 conflicts；existing_req_id 必须是项目事实里真实存在的其他需求，options 至少两种取舍，decision_needed 写清要所有者决定什么。没有真实冲突就留空数组，不要为了显得严谨编造冲突。
+- 查证依据：basis 为 project_convention 或 external_material 的业务要点必须在 references 里有一条覆盖它的记录，写清 locator、适用版本 version 和原文摘录 excerpt；用到的需求库条目与所有者决定也写进 references。摘录必须真的支持该要点的行为，不能只写路径或“见文档”。没有可回查摘录时，把它写成待澄清问题，不要凭印象下结论。
+- 功能地图：需求涉及界面或用户路径变化时给出 ui_map，写清入口、操作路径、可见反馈、适用状态，并关联对应的 BP 与 AC；已有原型或设计稿时写 prototype_ref 与 prototype_version。纯后端或规则变化的需求留空数组。
+- 验收样例：为关键验收项写 samples，固定数据、前置条件、逐步操作、独立预期和观察位置都要写实；预期要能判断对错，不能写“正常”“符合预期”。界面变化的需求再加一条 kind 为 counter_example 的样例，用能暴露错误实现的数据说明应该被拒绝或提示什么。适用对象确实不可运行时，仍要写出样例与预期。
 - 异常与边界必须写明状态：assessed 表示已经评估并列出条目；not_applicable 表示评估后确认不适用并给出理由；unanalyzed 表示尚未分析，必须在 clarifications 里提出对应问题。没有待澄清项时不允许留下 unanalyzed。
 - needs_confirmation=true 的假设必须在 clarifications 或仍然 open 的问题中请求确认；没有待澄清项时所有假设都应为 false，不能带着未确认假设进入研发。
 - 验收项必须使用 given/when/then：前置条件或输入、操作、可观察结果。“优化体验”“用户使用系统”“功能正常”不能单独作为充分验收；要说明谁在什么条件下做什么、看到什么结果。

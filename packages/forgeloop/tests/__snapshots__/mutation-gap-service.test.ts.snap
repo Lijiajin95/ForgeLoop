@@ -106,6 +106,7 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
       "removedPoints": [],
       "resolvedClarifications": [],
     },
+    "stageGaps": [],
     "status": "draft",
     "stopRequested": false,
     "submittedBy": "owner",

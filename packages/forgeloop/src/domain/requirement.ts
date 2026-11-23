@@ -2,7 +2,15 @@ import { asRecord } from './json.js'
 import { MalformedError, RuleViolationError, errorMessage } from './errors.js'
 import { AWAITING_CLARIFICATION, DRAFT } from './status.js'
 import type { ClarificationUpdate } from './analysis.js'
-import type { AcceptanceCriterion, Assumption, BusinessPoint, CommitmentConflict } from './spec.js'
+import type {
+  AcceptanceCriterion,
+  AcceptanceSample,
+  Assumption,
+  BusinessPoint,
+  CommitmentConflict,
+  EvidenceReference,
+  UiMapEntry,
+} from './spec.js'
 import { parseSpecFields } from './spec.js'
 import { parseLibraryReview, type LibraryReview } from './library.js'
 
@@ -66,6 +74,9 @@ export interface RequirementAnalysis {
   readonly acceptanceItems?: readonly AcceptanceCriterion[]
   readonly assumptions?: readonly Assumption[]
   readonly conflicts?: readonly CommitmentConflict[]
+  readonly references?: readonly EvidenceReference[]
+  readonly uiMap?: readonly UiMapEntry[]
+  readonly samples?: readonly AcceptanceSample[]
   readonly clarifications: readonly string[]
   readonly model?: string
   readonly promptVersion?: string
@@ -93,6 +104,9 @@ export interface AnalysisDraft {
   readonly acceptanceItems: readonly AcceptanceCriterion[]
   readonly assumptions: readonly Assumption[]
   readonly conflicts: readonly CommitmentConflict[]
+  readonly references: readonly EvidenceReference[]
+  readonly uiMap: readonly UiMapEntry[]
+  readonly samples: readonly AcceptanceSample[]
   readonly clarifications: readonly string[]
   readonly clarificationUpdates: readonly ClarificationUpdate[]
   readonly libraryReview: LibraryReview | null
@@ -266,6 +280,9 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
     acceptanceItems: spec.acceptance,
     assumptions: spec.assumptions,
     conflicts: spec.conflicts,
+    references: spec.references,
+    uiMap: spec.uiMap,
+    samples: spec.samples,
     clarifications,
     clarificationUpdates,
     libraryReview: parseLibraryReview(data.library_review),

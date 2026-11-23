@@ -109,6 +109,10 @@ DSH 宿主（唯一常驻产品）
    `plugin:forgeloop/intake` 会话事件，然后调用运行时 `analyzeRequirement`，由产品 Agent 输出
    目标、业务场景、业务规则、异常与边界、非目标、结构化业务要点（稳定编号 `BP-n`、依据来源、用户／触发／预期行为、
    规则、异常边界状态）、可观察验收项（`AC-n`，`point_ids` + given/when/then）、假设（`AS-n`）、验收标准与待澄清项；
+   涉及界面或用户路径变化时另给功能地图（`UI-n`：入口、路径、可见反馈、状态、原型引用），关键验收项给固定样例
+   （`SMP-n`：数据、前置、步骤、独立预期、观察位置，适用时含 `counter_example` 反例），非用户原文来源的要点
+   必须给带适用版本与摘录的查证依据（`REF-n`）。程序校验这些产物的编号、关联与依据，并把当前仍缺的材料作为
+   只读缺口在需求详情中展示，不改变准入结论；
    分析提示词同时携带
    `docs/product/business-context.md` 的行业与业务背景、程序查询的当前项目活动需求与任务
    （标题、状态、创建／更新时间、任务包版本与批准状态、任务状态与最近活动），已结束需求只给数量，
@@ -610,7 +614,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取**当前租户**
   项目日志尾部，无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。插件级宿主日志
   `<recordsRoot>/logs/plugin.log` 只作为磁盘运维证据，不通过工具暴露（其中含全部工作区身份）。
-- 表：需求与版本、需求文档快照（`requirement_documents`：每个需求版本一条，正文仍在需求版本原文）、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、需求库重建运行（`library_rebuilds`：状态、阶段、材料／批次／发布计数、触发者与来源、报告路径与发布清单）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
+- 表：需求与版本、需求文档快照（`requirement_documents`：每个需求版本一条，正文仍在需求版本原文）、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置；除业务要点与验收项外还保存查证依据 `references`、功能地图 `ui_map` 与验收样例 `samples`，均绑定分析版本）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、需求库重建运行（`library_rebuilds`：状态、阶段、材料／批次／发布计数、触发者与来源、报告路径与发布清单）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立测试（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、可安装交付（`requirement_installable_deliveries`：六项材料身份、安装说明摘要、
   试装目标与包摘要、可用时间）、人工处理区间（`human_interventions`：执行者、原因、起止时刻与来源）、

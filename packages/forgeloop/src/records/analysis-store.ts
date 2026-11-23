@@ -98,12 +98,18 @@ export class AnalysisStore {
       acceptance: analysis.acceptanceItems ?? [],
       assumptions: analysis.assumptions ?? [],
       conflicts: analysis.conflicts ?? [],
+      references: analysis.references ?? [],
+      uiMap: analysis.uiMap ?? [],
+      samples: analysis.samples ?? [],
     }
     if (
       spec.points.length === 0 &&
       spec.acceptance.length === 0 &&
       spec.assumptions.length === 0 &&
-      spec.conflicts.length === 0
+      spec.conflicts.length === 0 &&
+      spec.references.length === 0 &&
+      spec.uiMap.length === 0 &&
+      spec.samples.length === 0
     ) {
       return
     }
@@ -140,6 +146,36 @@ export class AnalysisStore {
             options: item.options,
             decision_needed: item.decisionNeeded,
           })),
+          references: spec.references.map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            locator: item.locator,
+            version: item.version,
+            excerpt: item.excerpt,
+            point_ids: item.pointIds,
+            acceptance_ids: item.acceptanceIds,
+          })),
+          ui_map: spec.uiMap.map((item) => ({
+            id: item.id,
+            entry: item.entry,
+            path: item.path,
+            feedback: item.feedback,
+            states: item.states,
+            point_ids: item.pointIds,
+            acceptance_ids: item.acceptanceIds,
+            prototype_ref: item.prototypeRef,
+            prototype_version: item.prototypeVersion,
+          })),
+          samples: spec.samples.map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            acceptance_ids: item.acceptanceIds,
+            data: item.data,
+            precondition: item.precondition,
+            steps: item.steps,
+            expected: item.expected,
+            observe_at: item.observeAt,
+          })),
         }),
       )
   }
@@ -157,6 +193,9 @@ export class AnalysisStore {
           acceptance: parsed.acceptance,
           assumptions: parsed.assumptions,
           conflicts: parsed.conflicts,
+          references: parsed.references,
+          uiMap: parsed.uiMap,
+          samples: parsed.samples,
         }
         return [num(row, 'analysis_version'), spec]
       }),
@@ -199,6 +238,9 @@ export class AnalysisStore {
               acceptanceItems: spec.acceptance,
               assumptions: spec.assumptions,
               conflicts: spec.conflicts,
+              references: spec.references,
+              uiMap: spec.uiMap,
+              samples: spec.samples,
             }
           : {}),
         clarifications: parseStringList(text(row, 'clarifications')),
