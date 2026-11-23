@@ -15,6 +15,7 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { launch } from './platform.ts'
+import { modelProxyProbe } from './verification-model-probe.ts'
 import {
   assertLocalDockerHost,
   isVerificationTarget,
@@ -183,13 +184,7 @@ async function modelNetwork(
   )
   docker.sync(['start', proxy])
   docker.sync(['network', 'connect', 'bridge', proxy])
-  const probe = [
-    'exec',
-    proxy,
-    'node',
-    '-e',
-    "fetch('http://127.0.0.1:8123/',{signal:AbortSignal.timeout(1000)}).then(r=>{if(r.status===403)console.log('ready')}).catch(()=>{})",
-  ]
+  const probe = modelProxyProbe(proxy)
   for (let retry = 0; retry < 20; retry += 1) {
     if (docker.sync(probe, {}, true) === 'ready') return
     await delay(250)
