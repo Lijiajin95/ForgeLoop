@@ -1,121 +1,78 @@
 #!/usr/bin/env node
-/**
- * 真实 DSH 宿主装载验证：检查 profile 是否安装插件、可组合，并在真实模型下调用插件工具。
- *
- * 需要：FORGELOOP_DSH_HOME（或 .cache/forgeloop/dsh-home）、FORGELOOP_PROFILE（或 forgeloop）、
- * 以及宿主可用的模型凭据（由启动环境提供，本脚本不读取或打印密钥）。
- */
-
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readlinkSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { launch } from './platform.ts'
+import { tmpdir } from 'node:os'
+import { requireVerificationContainer, verificationCandidate } from './verification-container.ts'
 
-const ROOT = resolve(import.meta.dirname, '../..')
-const DSH_HOME = resolve(process.env.FORGELOOP_DSH_HOME ?? join(ROOT, '.cache/forgeloop/dsh-home'))
-const PROFILE = process.env.FORGELOOP_PROFILE ?? 'forgeloop'
-const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
-const PATCH = process.env.FORGELOOP_DSH_PATCH?.trim()
-const patchArgs = PATCH ? ['--patch', PATCH] : []
-const failures: string[] = []
+requireVerificationContainer()
 
-function dsh(args: string[], input?: string): { code: number; stdout: string; stderr: string } {
-  const command = launch(DSH, args)
-  try {
-    const stdout = execFileSync(command.file, [...command.args], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      input,
-      env: { ...process.env, DSH_HOME },
-      timeout: 300_000,
-      maxBuffer: 32 * 1024 * 1024,
-      ...(command.spawnOptions ?? {}),
-    })
-    return { code: 0, stdout, stderr: '' }
-  } catch (error) {
-    const failure = error as { status?: number; stdout?: string; stderr?: string; message?: string }
-    return {
-      code: failure.status ?? 1,
-      stdout: failure.stdout ?? '',
-      stderr: failure.stderr ?? failure.message ?? '',
-    }
-  }
-}
+const root = resolve(import.meta.dirname, '../..')
+const stage = mkdtempSync(join(tmpdir(), 'forgeloop-verify-plugin-'))
+const home = join(stage, 'dsh-home')
+const project = join(stage, 'project')
+const records = join(stage, 'records')
+const config = join(stage, 'forgeloop.json')
+const profile = 'forgeloop-verify-plugin'
 
-function checkProfile(): void {
-  const profileDir = join(DSH_HOME, 'profiles', PROFILE)
-  const manifestPath = join(profileDir, 'package.json')
-  if (!existsSync(manifestPath)) {
-    failures.push(`profile ${PROFILE} 不存在：${manifestPath}`)
-    return
-  }
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-    dsh?: { profile?: { bundles?: string[] } }
-    dependencies?: Record<string, string>
-  }
-  if (!manifest.dsh?.profile?.bundles?.includes('forgeloop-dsh')) {
-    failures.push('profile 的 dsh.profile.bundles 未包含 forgeloop-dsh')
-  }
-  const installed = join(profileDir, 'node_modules/forgeloop-dsh')
-  if (!existsSync(installed)) {
-    failures.push(`profile 未安装 forgeloop-dsh：${installed}`)
-    return
-  }
-  let kind = 'installed-copy'
-  try {
-    kind = `link:${readlinkSync(installed)}`
-  } catch {
-    // 真实安装目录，不是链接。
-  }
-  const packageJson = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as {
-    version?: string
-  }
-  console.log(
-    `[verify-plugin] profile=${profileDir} package=forgeloop-dsh@${packageJson.version ?? '?'} kind=${kind}`,
-  )
-
-  const dump = dsh(['--profile', PROFILE, ...patchArgs, '--dump-config'])
-  if (dump.code !== 0) failures.push(`--dump-config 失败：${dump.stderr.trim()}`)
-  else if (!dump.stdout.includes('forgeloop-dsh'))
-    failures.push('--dump-config 未出现 forgeloop-dsh 层')
-  else if (dump.stdout.includes('@deepseek-ai/dsh-workspace')) {
-    // CLI 会话没有工作区身份：工作区模式下工具会拒绝，不能用“工具调用成功”证明安装可用。
-    failures.push(
-      '目标 profile 含 DSH 工作区插件；本脚本的 CLI 会话无法绑定工作区，请改用 make verify-e2e 验证工作区模式',
+function dsh(args: readonly string[]): string {
+  const result = spawnSync('dsh', [...args], {
+    cwd: project,
+    env: { ...process.env, DSH_HOME: home, FORGELOOP_CONFIG: config },
+    encoding: 'utf8',
+    timeout: 300_000,
+    maxBuffer: 16 * 1024 * 1024,
+  })
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      'DSH 验证命令失败：' + (result.error?.message ?? result.stderr.trim().slice(-800)),
     )
   }
+  return result.stdout
 }
 
-function checkToolLoop(): void {
-  const result = dsh([
+try {
+  const candidate = verificationCandidate(root)
+  for (const dir of [home, project, records]) mkdirSync(dir)
+  writeFileSync(
+    config,
+    JSON.stringify({
+      project: 'verify-plugin',
+      projectPath: project,
+      recordsRoot: records,
+      autoAdvance: false,
+      ops: { enabled: false },
+      deployments: { enabled: false },
+    }),
+  )
+  dsh(['--profile', profile, '--from-default-profile', 'headless', '--dump-config'])
+  dsh(['plugin', '--profile', profile, 'add', '--offline', candidate.path])
+  const composed = dsh(['--profile', profile, '--dump-config'])
+  if (!composed.includes('forgeloop-dsh') || composed.includes('@deepseek-ai/dsh-workspace')) {
+    throw new Error('候选未装入本轮 headless profile')
+  }
+  const output = dsh([
     '--profile',
-    PROFILE,
-    ...patchArgs,
+    profile,
     '--json',
     'Call the forgeloop_status tool with empty arguments, then answer with the tool ok flag.',
   ])
-  if (result.code !== 0) {
-    failures.push(
-      `真实模型工具调用失败（退出码 ${result.code}）：${result.stderr.trim().slice(0, 500)}`,
-    )
-    return
+  if (!output.includes('"tool":"forgeloop_status"') || !output.includes('"kind":"completed"')) {
+    throw new Error('真实模型未完成 forgeloop_status 工具回合')
   }
-  if (!result.stdout.includes('"tool":"forgeloop_status"')) {
-    failures.push('模型没有调用 forgeloop_status 工具')
-  }
-  if (!result.stdout.includes('"kind":"completed"')) {
-    failures.push('模型回合没有正常结束')
-  }
-  const final = /"type":"final","text":(.*)$/m.exec(result.stdout)
-  console.log(`[verify-plugin] tool-loop final=${final ? final[1]!.slice(0, 120) : '(none)'}`)
-}
-
-checkProfile()
-if (failures.length === 0) checkToolLoop()
-
-if (failures.length > 0) {
-  for (const failure of failures) console.error(`[verify-plugin] FAIL ${failure}`)
-  process.exitCode = 1
-} else {
-  console.log('[verify-plugin] OK：profile 安装、组合层与真实模型工具链可用')
+  const dbPath = join(records, 'projects', 'verify-plugin', 'records.sqlite')
+  if (!existsSync(dbPath)) throw new Error('没有核对到本轮隔离记录库')
+  const reports = join(root, 'reports')
+  mkdirSync(reports, { recursive: true })
+  writeFileSync(
+    join(reports, 'verify-plugin.json'),
+    JSON.stringify(
+      { candidateSha256: candidate.sha256, profile, dbPath, tool: 'forgeloop_status' },
+      null,
+      2,
+    ) + '\n',
+  )
+  console.log('[verify-plugin] OK：候选在隔离 headless profile 完成真实工具回合')
+} finally {
+  rmSync(stage, { recursive: true, force: true })
 }

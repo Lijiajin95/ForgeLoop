@@ -15,7 +15,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -25,6 +24,10 @@ import { join, resolve } from 'node:path'
 import { request, type APIRequestContext } from 'playwright-core'
 import { launch, terminate } from './platform.ts'
 import { createWorkspaceSession, ensureWorkspace, promptSession, readBoard } from './web-rpc.ts'
+
+import { requireVerificationContainer, verificationCandidate } from './verification-container.ts'
+
+requireVerificationContainer()
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const DSH = process.env.FORGELOOP_DSH ?? 'dsh'
@@ -53,28 +56,6 @@ function requireCredential(): void {
       '缺少 DEEPSEEK_API_KEY；真实 DSH + 真实模型 E2E 必须显式提供，不能跳过或伪造成功',
     )
   }
-}
-
-function candidateTarball(): string {
-  const configured = process.env.FORGELOOP_CANDIDATE_TARBALL?.trim()
-  if (configured) {
-    const path = resolve(configured)
-    if (!existsSync(path)) throw new Error(`候选包不存在：${path}`)
-    return path
-  }
-  const dist = join(ROOT, 'packages/forgeloop/dist')
-  const found = existsSync(dist)
-    ? readdirSync(dist)
-        .filter((name) => /^forgeloop-dsh-.*\.tgz$/.test(name))
-        .sort()
-        .at(-1)
-    : undefined
-  if (!found) {
-    throw new Error(
-      '没有候选 tarball；请先 make package，或用 FORGELOOP_CANDIDATE_TARBALL 指定真实安装包',
-    )
-  }
-  return join(dist, found)
 }
 
 function run(
@@ -246,7 +227,7 @@ let exitCode = 0
 
 try {
   requireCredential()
-  const tarball = candidateTarball()
+  const candidate = verificationCandidate(ROOT)
   mkdirSync(PROJECT_DIR, { recursive: true })
   mkdirSync(BASE_PROJECT_DIR, { recursive: true })
   mkdirSync(HOME, { recursive: true })
@@ -283,6 +264,7 @@ try {
           ],
         },
         ops: { enabled: false },
+        deployments: { enabled: false },
       },
       null,
       2,
@@ -297,7 +279,7 @@ try {
 
   const profile = WEB_PROFILE
   mustDsh(['--profile', profile, '--from-default-profile', 'web', '--dump-config'], env)
-  mustDsh(['plugin', '--profile', profile, 'add', tarball], env)
+  mustDsh(['plugin', '--profile', profile, 'add', '--offline', candidate.path], env)
   const installed = join(HOME, 'profiles', profile, 'node_modules', 'forgeloop-dsh')
   if (!existsSync(installed)) throw new Error(`profile ${profile} 未安装 forgeloop-dsh`)
   if (lstatSync(installed).isSymbolicLink()) {
@@ -324,6 +306,12 @@ try {
 
   const workspaceView = await ensureWorkspace(context, PROJECT_DIR)
   const businessSession = await createWorkspaceSession(context, workspaceView.id, 'forgeloop')
+  const project = `ws-${workspaceView.id}`
+  const dbPath = join(RECORDS, 'projects', project, 'records.sqlite')
+  const board = await readBoard(context, { endpoint: 'board', sessionId: businessSession })
+  if (board.project !== project || !existsSync(dbPath)) {
+    throw new Error('测试需求提交前，未核对到本轮工作区与隔离记录库')
+  }
   await promptSession(context, businessSession, REQUIREMENT)
   log(`已在工作区 ${workspaceView.title} 提交需求，等待受理`)
   const reqId = await waitForRequirement(context, businessSession)
@@ -331,6 +319,12 @@ try {
   const detail = await pollCommitted(context, businessSession, reqId)
   assertDelivered(detail)
 
+  const reports = join(ROOT, 'reports')
+  mkdirSync(reports, { recursive: true })
+  writeFileSync(
+    join(reports, 'verify-e2e.json'),
+    `${JSON.stringify({ candidateSha256: candidate.sha256, pid: child.pid, port, project, dbPath, reqId, commit: detail.commit }, null, 2)}\n`,
+  )
   log(`OK：真实 DSH + 真实模型 + 工作区隔离的端到端主路径通过（${reqId}）`)
 } catch (error) {
   exitCode = 1

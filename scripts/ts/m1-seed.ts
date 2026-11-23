@@ -22,6 +22,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { terminate } from './platform.ts'
 
+import { requireVerificationContainer } from './verification-container.ts'
+
+requireVerificationContainer()
+
 const ROOT = resolve(import.meta.dirname, '../..')
 const PROFILE = 'm1-seed'
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -123,7 +127,7 @@ async function main(): Promise<void> {
     '--dump-config',
   ])
   execFileSync(created.file, created.args, { cwd: ROOT, env, stdio: 'ignore' })
-  const add = dshCommand(['plugin', '--profile', PROFILE, 'add', site.tarball])
+  const add = dshCommand(['plugin', '--profile', PROFILE, 'add', '--offline', site.tarball])
   execFileSync(add.file, add.args, { cwd: ROOT, env, stdio: 'ignore' })
   // 安装器职责：把本次制品摘要写进安装目录，运行身份据此报告实际装载的制品。
   const installedRoot = join(site.home, 'profiles', PROFILE, 'node_modules', 'forgeloop-dsh')

@@ -1,0 +1,17 @@
+.git
+**/.git
+**/.env
+**/.env.*
+**/.dsh
+**/.dsh-*
+**/.forgeloop
+**/.cache
+**/.npmrc
+**/node_modules
+**/coverage
+**/dist
+**/*.sqlite*
+**/*.tgz
+**/reports
+docs/verification/evidence
+packages/forgeloop/lib

@@ -1,7 +1,6 @@
 name: Release candidate
 
-# 手动发布门禁：全量检查、候选包、SBOM；真实宿主验证由仓库变量 ENABLE_REAL_HOST
-# 控制（需要自托管 macOS 与模型凭据，公共 runner 不执行）。
+# 手动发布门禁：全量检查、候选包、SBOM；ENABLE_REAL_HOST 控制 Docker 真实模型验收。
 on:
   workflow_dispatch:
 
@@ -33,31 +32,34 @@ jobs:
           retention-days: 14
 
   real-host:
-    # 需仓库变量 ENABLE_REAL_HOST=true、自托管 macOS runner 与模型凭据。
     if: vars.ENABLE_REAL_HOST == 'true'
     needs: candidate
-    runs-on: [self-hosted, macOS]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "26"
-          cache: npm
-      - run: npm ci --no-audit --no-fund
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: forgeloop-candidate
           path: packages/forgeloop/dist
-      - run: make verify-plugin
-        env:
-          FORGELOOP_DSH_HOME: ${{ secrets.FORGELOOP_DSH_HOME }}
-          FORGELOOP_PROFILE: ${{ secrets.FORGELOOP_PROFILE }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       - name: Real DSH + model + tool end-to-end
         shell: bash
         run: |
-          TARBALL="$(ls packages/forgeloop/dist/forgeloop-dsh-*.tgz | head -1)"
-          FORGELOOP_CANDIDATE_TARBALL="$TARBALL" make verify-e2e
+          files=(packages/forgeloop/dist/forgeloop-dsh-*.tgz)
+          test "${#files[@]}" -eq 1 && test -f "${files[0]}"
+          export FORGELOOP_CANDIDATE_TARBALL="${files[0]}"
+          make verify-plugin verify-e2e
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          FORGELOOP_TEST_DEEPSEEK_API_KEY: ${{ secrets.FORGELOOP_TEST_DEEPSEEK_API_KEY }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: docker-release-verification
+          path: reports/docker-verification/
+          if-no-files-found: warn
+          retention-days: 14

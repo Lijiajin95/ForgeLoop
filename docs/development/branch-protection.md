@@ -120,24 +120,11 @@ gh api repos/Lijiajin95/ForgeLoop/rulesets
 gh api -X DELETE repos/Lijiajin95/ForgeLoop/branches/main/protection   # 回滚 PR 规则
 ```
 
-## E2E 门禁现状（部分落实）
+## E2E 门禁现状
 
-- 已有 `make e2e`：`scripts/ts/e2e.ts` 构建插件 → 临时 `DSH_HOME` + 独立 profile 安装 →
-  校验 `--dump-config`（forgeloop-dsh 层、会话 preset）与 `plugin list`；不依赖模型。
-- `make e2e` 同时跑 `scripts/ts/e2e-board.ts`：隔离配置启动 `dsh web`，token→cookie 后
-  POST `/api/forgeloop/board` 校验 200/project/summary；这是看板路由的真实宿主验证。
-- 已加入 `quality.yml` 的 `e2e` job：CI 安装与本地一致的 `@deepseek-ai/dsh@0.2.1-rc.4`
-  后执行 `make e2e`；**尚未在 GitHub runner 实跑验证**，首次运行通过前不声称 CI 已覆盖。
-- `make verify-e2e` 是真实模型主路径门禁：候选 tarball 安装到隔离 profile，真实模型调用
-  `forgeloop_submit_requirement`，协调器自动推进到受控提交，最后模型读取
-  `forgeloop_show_requirement`/`forgeloop_evidence`；缺少 `DEEPSEEK_API_KEY` 或 tarball
-  时直接失败，不跳过。
-- `release.yml` 的 `real-host` job（`vars.ENABLE_REAL_HOST` 开关）现在会下载候选 artifact
-  并执行 `make verify-e2e`；公共 runner 与无凭据环境不执行。
-- 本轮本地没有 `DEEPSEEK_API_KEY`，只实测了 `verify-e2e` 的失败关闭路径；真实模型端到端
-  尚未在本机验证，不能声称已经跑通。
-- 该 job 尚未加入 `main` 的必需检查（需所有者确认后再改保护设置）。
-- 真实模型工具链烟雾测试由 `make verify-plugin` 覆盖（release workflow），同样需要凭据。
+- `quality.yml` 的 `e2e` 作业通过 `make e2e` 构建验证镜像，在断网 Linux 容器内试装插件并核对 DSH Web 看板的工作区和记录库。 [质量流水线](../../.github/workflows/quality.yml)
+- `release.yml` 的 `real-host` 作业由 `ENABLE_REAL_HOST=true` 开启，从上游作业取同一候选包，在 Docker 中执行 `verify-plugin` 和 `verify-e2e`。真实模型凭据使用仓库 secret `FORGELOOP_TEST_DEEPSEEK_API_KEY`。 [发布候选流水线](../../.github/workflows/release.yml)
+- 这两类作业归档容器验收证据。真实模型门禁的最新实跑结果见[状态记录](../verification/status.md)。现行分支保护见上文。
 
 ## 维护
 
