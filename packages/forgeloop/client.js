@@ -1539,6 +1539,7 @@ window.__ModuleLoader__.load({
       'product.noTopic': '未分主题',
       'product.detail': '需求库条目',
       'product.open': '查看详情 ↗',
+      'product.dblclick': '双击查看详情',
       'product.body.loading': '正在读取正文…',
       'product.body.error': '正文读取失败',
       'product.body.ref': '正文来自引用文档',
@@ -2295,6 +2296,7 @@ window.__ModuleLoader__.load({
       'product.noTopic': 'No topic',
       'product.detail': 'Library entry',
       'product.open': 'View details ↗',
+      'product.dblclick': 'Double-click for details',
       'product.body.loading': 'Reading full text…',
       'product.body.error': 'Failed to read full text',
       'product.body.ref': 'Full text comes from the referenced document',
@@ -8777,7 +8779,12 @@ window.__ModuleLoader__.load({
                     ...filteredEntries.map((entry) =>
                       h(
                         'article',
-                        { key: entry.id, className: 'flb-product-card' },
+                        {
+                          key: entry.id,
+                          className: 'flb-product-card',
+                          title: t('product.dblclick'),
+                          onDoubleClick: () => openWindow(entry),
+                        },
                         h(
                           'div',
                           { className: 'flb-product-card-head' },
@@ -8836,6 +8843,7 @@ window.__ModuleLoader__.load({
                   'aria-modal': 'true',
                   'aria-label': t('product.detail'),
                   onClick: (event) => {
+                    if (event.detail > 1) return
                     if (event.target === event.currentTarget) closeWindow()
                   },
                 },
