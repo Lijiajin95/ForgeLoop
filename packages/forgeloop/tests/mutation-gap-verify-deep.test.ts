@@ -613,7 +613,7 @@ describe('LegacyVerification candidate fixing and execution', () => {
             checks: [
               {
                 label: 'slow',
-                argv: [process.execPath, '-e', 'setTimeout(function () {}, 5000)'],
+                argv: [process.execPath, '-e', 'setTimeout(function () {}, 30000)'],
                 expectedOutput: '',
               },
             ],
@@ -623,7 +623,8 @@ describe('LegacyVerification candidate fixing and execution', () => {
     })
     const started = Date.now()
     const outcome = await built.verify()
-    expect(Date.now() - started).toBeLessThan(4000)
+    // 超时 1 秒必须杀子进程：命令自身要挂 30 秒；这里给工作区准备留足余量，回归时会超过 30 秒。
+    expect(Date.now() - started).toBeLessThan(25000)
     expect(outcome.state).toBe('block')
     expect(outcome.failureKind).toBe('undetermined')
     expect(outcome.repairRecommended).toBe(false)
@@ -1228,13 +1229,14 @@ describe('VerificationPipeline gates and fixed candidate', () => {
     const built = setupPipeline({
       formalTestTimeoutSeconds: 1,
       commands: [
-        { label: 'slow', argv: [process.execPath, '-e', 'setTimeout(function () {}, 5000)'] },
+        { label: 'slow', argv: [process.execPath, '-e', 'setTimeout(function () {}, 30000)'] },
       ],
       report: pipelineReport({ commands: ['slow'], evidence: 'slow command evidence' }),
     })
     const started = Date.now()
     const outcome = await built.pipeline.executeVerification(PIPE_REQ, new AbortController().signal)
-    expect(Date.now() - started).toBeLessThan(4000)
+    // 超时 1 秒必须杀子进程：命令自身要挂 30 秒；这里给工作区准备留足余量，回归时会超过 30 秒。
+    expect(Date.now() - started).toBeLessThan(25000)
     expect(outcome.state).toBe('failed')
     expect(outcome.detail).toContain('测试命令失败：slow 超时')
     expect(outcome.detail).toContain('独立测试阻断（undetermined）')
