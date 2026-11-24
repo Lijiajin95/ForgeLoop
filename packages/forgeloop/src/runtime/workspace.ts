@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { copyFile, mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { sha256OfText } from '../domain/delivery.js'
+import { prepareCommand } from './command-launch.js'
 import { RuleViolationError } from '../domain/errors.js'
 
 export interface CommandResult {
@@ -39,11 +40,14 @@ export function runCommand(
     }
     const child = (() => {
       try {
-        return spawn(command, commandArgs, {
+        const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv }
+        const launch = prepareCommand([command, ...commandArgs], { env })
+        return spawn(launch.argv[0] ?? command, launch.argv.slice(1), {
           cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
-          env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv },
+          env,
+          windowsVerbatimArguments: launch.windowsVerbatimArguments,
         })
       } catch {
         return undefined

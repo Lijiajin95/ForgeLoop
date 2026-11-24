@@ -1,4 +1,5 @@
 import { parseJsonObject } from '../domain/json.js'
+import { prepareCommand } from './command-launch.js'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -14,7 +15,9 @@ function extractMember(
   member: string,
 ): Promise<Buffer | null> {
   return new Promise((resolve) => {
-    const child = spawn('tar', ['-xzf', tarballName, '-O', member], {
+    const launch = prepareCommand(['tar', '-xzf', tarballName, '-O', member])
+    const child = spawn(launch.argv[0] ?? 'tar', launch.argv.slice(1), {
+      windowsVerbatimArguments: launch.windowsVerbatimArguments,
       cwd: tarballDir,
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,

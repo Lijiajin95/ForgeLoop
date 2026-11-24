@@ -1,6 +1,7 @@
 import { asRecord } from '../domain/json.js'
 import { parseJsonObject } from '../domain/json.js'
 import { bestEffort, bestEffortValue } from './best-effort.js'
+import { prepareCommand } from './command-launch.js'
 import { randomUUID } from 'node:crypto'
 import { errorMessage } from '../domain/errors.js'
 import { spawn } from 'node:child_process'
@@ -136,10 +137,12 @@ export function runOpsCommand(
     let timedOut = false
     let aborted = false
     let settled = false
-    const child = spawn(executable, argv.slice(1), {
+    const launch = prepareCommand([executable, ...argv.slice(1)])
+    const child = spawn(launch.argv[0] ?? executable, launch.argv.slice(1), {
       cwd,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsVerbatimArguments: launch.windowsVerbatimArguments,
     })
     const finish = (code: number, extra?: string): void => {
       if (settled) return

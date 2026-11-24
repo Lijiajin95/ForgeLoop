@@ -1,4 +1,5 @@
 import { asRecord } from '../domain/json.js'
+import { prepareCommand } from './command-launch.js'
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -95,10 +96,12 @@ async function runProcess(
       request.signal?.removeEventListener('abort', onAbort)
     }
   } else {
-    const child = spawn(request.argv[0] ?? '', request.argv.slice(1), {
+    const launch = prepareCommand(request.argv)
+    const child = spawn(launch.argv[0] ?? '', launch.argv.slice(1), {
       cwd: request.cwd,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsVerbatimArguments: launch.windowsVerbatimArguments,
     })
     child.stdout.on('data', (chunk: Buffer) => {
       collect(Buffer.from(chunk))

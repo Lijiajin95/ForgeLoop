@@ -6,6 +6,7 @@ import type { DeploymentOperation, DeploymentDataScope } from '../domain/deploym
 import type { DeploymentToolConfig } from '../config.js'
 import { sha256OfBytes } from '../domain/delivery.js'
 import type { DeploymentStore } from '../records/deployment-store.js'
+import { prepareCommand } from './command-launch.js'
 
 const MAX_OUTPUT_BYTES = 64 * 1024
 
@@ -118,10 +119,12 @@ export async function runDeploymentTool(
   const { command, args } = deploymentToolArgv(tool, op, planPath)
   const stdout = new OutputBuffer()
   const stderr = new OutputBuffer()
-  const child = spawn(command, args, {
+  const launch = prepareCommand([command, ...args])
+  const child = spawn(launch.argv[0] ?? command, launch.argv.slice(1), {
     cwd: dirname(tool.path),
     env: deploymentToolEnv(tool),
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsVerbatimArguments: launch.windowsVerbatimArguments,
   })
   let timedOut = false
   const timer = setTimeout(() => {
