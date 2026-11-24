@@ -119,6 +119,11 @@ import { AnalysisQueue, analysisModeOf } from './analysis-queue.js'
 export class ForgeLoopRuntime {
   readonly config: ForgeLoopConfig
   readonly repo: Repository
+  /**
+   * 是否由本进程持有单消费者锁。只有持有者启动后台工作：一次性宿主进程退出时会取消
+   * 已启动的 Agent 回合，把工作留给常驻的协调器进程才能完成。
+   */
+  coordinatorOwner = true
   readonly runner: AgentLike
   readonly ops: OpsRuntime
   readonly requirementQueue: RequirementQueue
@@ -316,6 +321,7 @@ export class ForgeLoopRuntime {
   }
 
   intakeQueuedRequirement(): string | null {
+    if (!this.coordinatorOwner) return null
     const claimed = this.requirementQueue.inFlight()
     if (claimed) {
       const requirement = this.repo.getRequirement(claimed.requirementId)

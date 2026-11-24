@@ -75,6 +75,7 @@ export class Coordinator {
     if (!this.stopped) return
     const lock = acquireHostLock(projectDir(this.runtime.config), this.owner)
     this.lock = lock
+    this.runtime.coordinatorOwner = lock.acquired
     if (!lock.acquired) {
       this.stopped = true
       this.lastError = `单消费者锁未取得：${lock.reason}（${lock.holder}）`
