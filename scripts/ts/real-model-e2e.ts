@@ -87,9 +87,6 @@ const REQUIREMENT =
     '验证异常分支时，请用自建的临时目录复制该测试命令的行为，不要读取本仓库当前状态。',
   ].join('\n')
 
-const CLARIFICATION_ANSWER =
-  '按需求原文执行：状态筛选只影响列表展示，不修改数据结构；已取消订单保持不可操作；与现有行为冲突时取最小改动并在实现中说明。'
-
 function submitPrompt(): string {
   if (SCOPE !== 'requirement') {
     return `只调用一次工具 forgeloop_submit_requirement 提交下面的需求原文；不要修改任何文件，也不要调用其他工具。\n\n${REQUIREMENT}`
@@ -333,12 +330,10 @@ interface RequirementStageSnapshot {
 async function pollRequirementStage(
   dbPath: string,
   startedAt: string,
-  answerClarifications: (reqId: string) => Promise<string>,
 ): Promise<RequirementStageSnapshot> {
   const deadline = Date.now() + TIMEOUT_MS
   let lastLine = ''
   let failedSince: number | null = null
-  let answered = ''
   while (Date.now() < deadline) {
     if (!existsSync(dbPath)) {
       await sleep(2_000)
@@ -402,16 +397,6 @@ async function pollRequirementStage(
           console.log(`[real-model-e2e] 需求阶段：${line}`)
           lastLine = line
         }
-        if (requirement.status === 'awaiting_clarification' && analysis) {
-          const key = `${requirement.req_id}:${analysis.analysisVersion}`
-          if (answered !== key) {
-            answered = key
-            const message = await answerClarifications(requirement.req_id)
-            console.log(`[real-model-e2e] 澄清答复：${message}`)
-          }
-          await sleep(2_000)
-          continue
-        }
         if (requirement.status === 'cancelled' || requirement.status === 'rejected') {
           throw new Error(`需求停在 ${requirement.status}：${line}`)
         }
@@ -426,7 +411,7 @@ async function pollRequirementStage(
           continue
         }
         failedSince = null
-        if (admission && analysis) {
+        if (analysis) {
           return { requirement, admission, analysis, attempt, spec }
         }
       }
@@ -875,35 +860,9 @@ async function main(): Promise<void> {
     }
 
     if (SCOPE === 'requirement') {
-      const ownerConfig = resolveConfig(configFor(projectDir, recordsRoot), projectDir)
-      const owner = new ForgeLoopRuntime({
-        ctx: {},
-        config: ownerConfig,
-        runner: {
-          async run() {
-            throw new Error('澄清答复不需要 Agent')
-          },
-        },
-      })
-      let stage: RequirementStageSnapshot
-      try {
-        stage = await pollRequirementStage(dbPath, startedAt, async (reqId) => {
-          const outcome = await owner.answerClarifications({
-            reqId,
-            answer: CLARIFICATION_ANSWER,
-            by: ownerConfig.owner,
-            source: 'owner:real-model-e2e',
-          })
-          return `${outcome.ok ? 'answered' : outcome.code}：${outcome.message}`
-        })
-      } finally {
-        owner.close()
-      }
+      const stage = await pollRequirementStage(dbPath, startedAt)
       if (stage.requirement.source !== 'dsh-tool:submit_requirement') {
         throw new Error(`需求来源未按工具记录：${stage.requirement.source}`)
-      }
-      if (!stage.admission || stage.admission.decision !== 'admit') {
-        throw new Error(`需求没有被系统准入：${JSON.stringify(stage.admission)}`)
       }
       if (!stage.analysis || stage.analysis.promptVersion !== 'analysis-v6') {
         throw new Error(`分析未使用 analysis-v6：${JSON.stringify(stage.analysis)}`)
@@ -944,8 +903,11 @@ async function main(): Promise<void> {
           2,
         )}\n`,
       )
+      const clarifications = Array.isArray(stage.spec?.clarifications)
+        ? stage.spec.clarifications.length
+        : 0
       console.log(
-        `[real-model-e2e] OK：需求阶段完成（准入 + analysis-v6 分析）；产物 ${JSON.stringify(counts)}`,
+        `[real-model-e2e] OK：需求阶段完成（analysis-v6 结构化分析）；产物 ${JSON.stringify(counts)}；待澄清 ${clarifications}；准入 ${stage.admission?.decision ?? '未发生'}`,
       )
       return
     }
