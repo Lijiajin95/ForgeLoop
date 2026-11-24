@@ -873,8 +873,8 @@ async function main(): Promise<void> {
       if (points === 0) throw new Error('分析缺少业务要点')
       const counts = {
         points,
-        acceptance: Array.isArray(stage.spec?.acceptance_items)
-          ? stage.spec.acceptance_items.length
+        acceptance: Array.isArray(stage.spec?.acceptance_criteria)
+          ? stage.spec.acceptance_criteria.length
           : 0,
         references: Array.isArray(stage.spec?.references) ? stage.spec.references.length : 0,
         uiMap: Array.isArray(stage.spec?.ui_map) ? stage.spec.ui_map.length : 0,
