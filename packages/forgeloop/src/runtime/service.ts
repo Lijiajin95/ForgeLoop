@@ -1,6 +1,9 @@
 import { asRecord } from '../domain/json.js'
 import { bestEffort } from './best-effort.js'
 import { randomUUID } from 'node:crypto'
+
+const AUTO_RETRY_SOURCE = 'auto-retry'
+const MAX_TRANSIENT_REQUEST_RETRIES = 3
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ForgeLoopConfig } from '../config.js'
@@ -1083,6 +1086,29 @@ ${answer}`
         : this.repo.latestPlanApproval(reqId),
       admission: this.repo.latestAdmission(reqId),
     })
+  }
+
+  autoRetryTransientRequest(input: {
+    reqId: string
+    project: string
+    planVersion: number
+    action: string
+  }): boolean {
+    const attempted = this.repo
+      .requestsFor(input.reqId)
+      .filter((request) => request.source === AUTO_RETRY_SOURCE).length
+    if (attempted >= MAX_TRANSIENT_REQUEST_RETRIES) return false
+    const recorded = this.repo.recordRequest({
+      requestId: `rq-${randomUUID()}`,
+      reqId: input.reqId,
+      project: input.project,
+      planVersion: input.planVersion,
+      action: input.action,
+      requestedBy: 'coordinator:auto-retry',
+      source: AUTO_RETRY_SOURCE,
+      now: this.now(),
+    })
+    return recorded.created
   }
 
   autoAdvanceRequests(now = this.now()): string[] {

@@ -1,5 +1,6 @@
 import { hostname } from 'node:os'
 import { errorMessage } from '../domain/errors.js'
+import { classifyFailure } from '../domain/failure-classification.js'
 import { staleActionMs } from '../domain/action-liveness.js'
 import { randomUUID } from 'node:crypto'
 import type { ForgeLoopRuntime } from './service.js'
@@ -370,6 +371,14 @@ export class Coordinator {
       })
       if (this.runtime.repo.finishActionIfStarted(actionId, 'failed', detail, finishedAt)) {
         this.runtime.repo.resolveRequestIfClaimed(request.requestId, 'failed', detail, finishedAt)
+        if (classifyFailure(reason) === 'transient') {
+          this.runtime.autoRetryTransientRequest({
+            reqId: request.reqId,
+            project: request.project,
+            planVersion: request.planVersion,
+            action: request.action,
+          })
+        }
       } else {
         this.logger.error(`[forgeloop] 迟到异常被忽略：${actionId} 已收口`, {
           event: 'coordinator.late-error',
