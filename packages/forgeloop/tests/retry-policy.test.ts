@@ -46,22 +46,19 @@ describe('retry decision', () => {
     expect(retryDecision({ ...OK, awaitingInputTasks: 1 }).reason).toContain('等待人工回答')
   })
 
-  it('refuses when the failure budget is exhausted or the block needs a human', () => {
-    expect(retryDecision({ ...OK, remainingRounds: 0 }).reason).toContain('额度已用尽')
+  it('ignores exhausted quotas and human-gated block wording', () => {
+    expect(retryDecision({ ...OK, remainingRounds: 0 }).allowed).toBe(true)
     expect(
-      retryDecision({ ...OK, blockedReason: '执行工时已用尽；需显式延长或拆分任务' }).reason,
-    ).toContain('人工处置')
-    expect(retryDecision({ ...OK, blockedReason: '失败轮次额度已用尽' }).allowed).toBe(false)
+      retryDecision({ ...OK, blockedReason: '执行工时已用尽；需显式延长或拆分任务' }).allowed,
+    ).toBe(true)
+    expect(retryDecision({ ...OK, blockedReason: '失败轮次额度已用尽' }).allowed).toBe(true)
+    expect(retryDecision({ ...OK, blockedReason: '需要追加授权' }).allowed).toBe(true)
   })
 
-  it('treats -1 remaining rounds as unlimited', () => {
-    expect(retryDecision({ ...OK, remainingRounds: -1 }).allowed).toBe(true)
-    expect(
-      retryDecision({
-        ...OK,
-        blockedReason: '执行工时已用尽；需显式延长或拆分任务',
-      }).allowed,
-    ).toBe(false)
+  it('treats any remaining rounds value as unlimited', () => {
+    for (const remainingRounds of [-1, 0, 99]) {
+      expect(retryDecision({ ...OK, remainingRounds }).allowed).toBe(true)
+    }
   })
 
   it('ignores ordinary failure wording that mentions neither quota nor grants', () => {
@@ -115,17 +112,13 @@ describe('retry decision reasons (mutation-kill)', () => {
       allowed: false,
       reason: '仍有任务在等待人工回答',
     })
-    expect(retryDecision({ ...OK, remainingRounds: 0 })).toEqual({
-      allowed: false,
-      reason: '失败轮次额度已用尽；需要追加授权',
-    })
   })
 
-  it('treats each hard block as requiring a human decision', () => {
+  it('keeps quota and time wording retryable', () => {
     for (const text of ['额度已用尽', '工时已用尽', '需要追加授权', '终态']) {
       expect(retryDecision({ ...OK, blockedReason: `前置：${text}` })).toEqual({
-        allowed: false,
-        reason: `当前阻塞需要人工处置：前置：${text}`,
+        allowed: true,
+        reason: '',
       })
     }
   })

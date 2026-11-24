@@ -277,7 +277,7 @@ describe('advanced property invariants', () => {
     )
   })
 
-  it('never allows retry once failure rounds are exhausted', () => {
+  it('allows retry regardless of remaining failure rounds', () => {
     const facts = fc
       .tuple(
         fc.constantFrom('approved', 'executing', 'blocked'),
@@ -299,8 +299,8 @@ describe('advanced property invariants', () => {
     fc.assert(
       fc.property(facts, (input) => {
         const decision = retryDecision(input)
-        expect(decision.allowed).toBe(false)
-        expect(decision.reason).toContain('额度')
+        expect(decision.allowed).toBe(true)
+        expect(decision.reason).toBe('')
       }),
       propertyOptions(RUNS),
     )

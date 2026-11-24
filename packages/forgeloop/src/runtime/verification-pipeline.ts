@@ -22,8 +22,6 @@ import { headCommit, prepareSnapshotWorkspace, requireGit, runCommand } from './
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { FAILURE_BUSINESS_REVIEW, FAILURE_VERIFICATION } from '../domain/counting.js'
-import { workLimitSeconds } from '../domain/budget.js'
-import { ExecutionBudget } from '../domain/limits.js'
 import type { Repository, VerificationRecord } from '../records/repository.js'
 import type { AgentRunner } from './agent-runner.js'
 import type { runFormalTest } from './formal-test.js'
@@ -233,13 +231,7 @@ export class VerificationPipeline {
     plan: TaskPlan,
   ): { state: 'failed'; detail: string } | null {
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
-    const budget = new ExecutionBudget(
-      workLimitSeconds(this.deps.repo.budget(reqId).limit),
-      this.deps.repo.budget(reqId).consumedSeconds,
-    )
-    if (budget.canStartAction()) return null
-    this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
-    return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
+    return null
   }
 
   private async prepareVerificationWorkspace(input: {
@@ -687,7 +679,7 @@ export class VerificationPipeline {
     this.deps.repo.setStatus(
       reqId,
       'blocked',
-      `独立测试阻断（${kind}，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；失败轮次 ${rounds}${budgetLeft === 0 ? '；失败轮次额度已用尽' : ''}；${classification?.guidance ?? ''}`,
+      `独立测试阻断（${kind}，候选 ${candidateSha256.slice(0, 16)}…，尝试 ${attempt.number}）：${blockingText}；失败轮次 ${rounds}；${classification?.guidance ?? ''}`,
     )
     return {
       state: 'failed',

@@ -63,6 +63,7 @@
 - [ADR 0011](development/adr/0011-ops-maintenance-first.md)：运维 Agent 转入维护优先，不再扩展外部工具或主动复跑。
 - [ADR 0012](development/adr/0012-single-verification-path.md)：独立验证收敛到单一黑盒执行模型，执行模型迁移待存量用例迁移后合入。
 - [ADR 0013](development/adr/0013-verification-baseline-from-analysis.md)：验证基线改由需求分析生成，验证阶段不读取实现前评审与任务自验材料。
+- [ADR 0014](development/adr/0014-remove-dev-authorization-and-quota.md)：研发侧去授权与去额度，非人工阻塞按 20 次上限与指数退避自动重试。
 - [2026-10-22 交付记录](development/delivery/2026-10-22-typescript-dsh.md)：真实迁移、自迭代、失败与补救证据，不作为现行操作手册。
 
 ## 清理与回查

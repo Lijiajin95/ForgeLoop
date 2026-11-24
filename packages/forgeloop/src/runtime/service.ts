@@ -32,6 +32,14 @@ import { candidateIdentityOf, sha256OfText } from '../domain/delivery.js'
 import { formatCommitMessage } from '../domain/commit-message.js'
 import { retryDecision } from '../domain/retry-policy.js'
 import {
+  MAX_AUTO_RETRIES,
+  autoRetryAttempt,
+  autoRetryDelayMs,
+  autoRetrySource,
+  humanBlockedReason,
+  retryableFailureStage,
+} from '../domain/auto-retry.js'
+import {
   ACCEPTED,
   ACTION_VERIFY,
   APPROVED,
@@ -757,15 +765,7 @@ ${answer}`
         result: fail('plan_missing', `需求 ${input.reqId} 尚无任务包，不能开始验证`),
       }
     }
-    if (this.remainingFailureRounds(input.reqId) === 0) {
-      return {
-        ok: false,
-        result: fail(
-          'grant_required',
-          `需求 ${input.reqId} 的失败轮次额度已用尽；需要追加授权后才能继续${input.action === ACTION_VERIFY ? '验证' : '推进'}`,
-        ),
-      }
-    }
+
     if (input.action === ACTION_VERIFY && latestPlan) {
       const missing = this.missingDeliveryTasks(input.reqId, latestPlan)
       if (missing.length > 0) {
@@ -1009,14 +1009,7 @@ ${answer}`
         message: `需求 ${reqId} 已有待执行或执行中的 ${active.action} 请求 ${active.requestId}；等待结束后再重试`,
       }
     }
-    const remainingRounds = this.remainingFailureRounds(reqId)
-    if (remainingRounds === 0) {
-      return {
-        ok: false,
-        code: 'grant_required',
-        message: `需求 ${reqId} 的失败轮次额度已用尽；需要追加授权或重新规划后再重试`,
-      }
-    }
+
     const next = executionOrder(plan).find(
       (candidate) => !this.repo.taskArtifact(reqId, plan.planVersion, candidate),
     )
@@ -1027,15 +1020,45 @@ ${answer}`
         message: `任务 ${next ?? '（无）'} 尚未交付，不能重试后续任务 ${taskId}`,
       }
     }
-    return { ok: true, plan, task, run, remainingRounds }
+    return { ok: true, plan, task, run, remainingRounds: this.remainingFailureRounds(reqId) }
   }
 
-  /** 只读：失败轮次剩余额度。 */
-  remainingFailureRounds(reqId: string): number {
-    const perGrant = this.config.failureRoundsPerGrant
-    if (perGrant < 0) return Number.POSITIVE_INFINITY
-    const used = this.repo.failureRounds(reqId).length
-    return Math.max(0, this.repo.grantCount(reqId) * perGrant - used)
+  /** 额度限制已取消：失败轮次永不阻断，返回值只用于展示。 */
+  remainingFailureRounds(_reqId: string): number {
+    return Number.POSITIVE_INFINITY
+  }
+
+  /** 对不需要业务判断的阻塞自动重排推进请求；每需求最多 20 次并指数退避。 */
+  autoRetryBlocked(now = this.now()): string[] {
+    const queued: string[] = []
+    const at = Date.parse(now)
+    for (const requirement of this.repo.listRequirements(this.config.project)) {
+      if (requirement.status !== 'blocked') continue
+      if (this.repo.activeStop(requirement.reqId)) continue
+      if (humanBlockedReason(requirement.blockedReason)) continue
+      const rounds = this.repo.failureRounds(requirement.reqId)
+      const latest = rounds[rounds.length - 1]
+      if (!latest || !retryableFailureStage(latest.stage)) continue
+      const requests = this.repo.requestsFor(requirement.reqId)
+      if (requests.some((request) => ['pending', 'claimed'].includes(request.state))) continue
+      let attempts = 0
+      let lastAt = Date.parse(latest.occurredAt)
+      for (const request of requests) {
+        if (autoRetryAttempt(request.source) === null) break
+        attempts += 1
+        lastAt = Math.max(lastAt, Date.parse(request.createdAt))
+      }
+      if (attempts >= MAX_AUTO_RETRIES) continue
+      if (!Number.isFinite(at) || at < lastAt + autoRetryDelayMs(attempts)) continue
+      const outcome = this.requestOperation({
+        reqId: requirement.reqId,
+        action: 'advance',
+        by: 'system:auto-retry',
+        source: autoRetrySource(attempts + 1),
+      })
+      if (outcome.ok) queued.push(requirement.reqId)
+    }
+    return queued
   }
 
   private admitRequirement(

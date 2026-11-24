@@ -16,6 +16,7 @@ import {
 } from '../domain/status.js'
 import { attemptAllowed } from '../domain/limits.js'
 import { classifyFailure } from '../domain/failure-classification.js'
+import { MAX_AUTO_RETRIES } from '../domain/auto-retry.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { outsideActiveFiles, outsideActiveSource, unknownPackages } from '../domain/language.js'
@@ -538,7 +539,7 @@ export class ExecutionDev {
       input.plan.planVersion,
       input.task.taskId,
     )
-    for (let attempt = 1; attemptAllowed(attempt, this.deps.config.maxTaskAttempts); attempt += 1) {
+    for (let attempt = 1; attemptAllowed(attempt, MAX_AUTO_RETRIES); attempt += 1) {
       if (input.signal.aborted) {
         return this.taskStopped(input, attempt)
       }
@@ -623,7 +624,7 @@ export class ExecutionDev {
       }
       return outcome.done
     }
-    const reason = `任务 ${input.task.taskId} 已尝试 ${this.deps.config.maxTaskAttempts} 次仍未通过自验；现场保留，等待修复或授权`
+    const reason = `任务 ${input.task.taskId} 已尝试多次仍未通过自验；现场保留，等待自动重试`
     this.deps.recordRun(input.reqId, input.plan, input.task, {
       state: TASK_RUN_BLOCKED,
       reason: reason,

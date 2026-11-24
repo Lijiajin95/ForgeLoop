@@ -936,9 +936,9 @@ describe('pre-implementation review gate', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     await runQueued('analyze', reqId)
     const planned = await runQueued('plan', reqId)
-    expect(planned.state).toBe('failed')
-    expect(attempts).toBe(6) // 3 次规划 × 每次 2 次评审
-    expect(runtime.repo.taskPlans(reqId)).toHaveLength(3)
+    expect(planned.state, planned.detail).toBe('done')
+    expect(attempts).toBe(2) // 只生成一版任务包，评审只记录
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
     const latest = runtime.repo.latestTaskPlan(reqId)!
     const review = runtime.repo.planReview(reqId, latest.planVersion)!
     expect(review.verdict).toBe('block')
@@ -966,8 +966,8 @@ describe('pre-implementation review gate', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     await runQueued('analyze', reqId)
     const failedReview = await runQueued('plan', reqId)
-    expect(failedReview.state).toBe('failed')
-    expect(failedReview.detail).toContain('实现前评审未取得可用结论')
+    expect(failedReview.state, failedReview.detail).toBe('done')
+    expect(failedReview.detail).toContain('只记录')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
     expect(runtime.repo.planReview(reqId, 1)).toBeNull()
     expect(
@@ -988,8 +988,8 @@ describe('pre-implementation review gate', () => {
     }
     runtime = makeRuntime(malformed)
     const malformedReview = await runQueued('plan', reqId)
-    expect(malformedReview.state).toBe('failed')
-    expect(malformedReview.detail).toContain('实现前评审结果畸形')
+    expect(malformedReview.state, malformedReview.detail).toBe('done')
+    expect(malformedReview.detail).toContain('只记录')
     expect(runtime.repo.taskPlans(reqId)).toHaveLength(2)
     expect(runtime.repo.planReview(reqId, 2)).toBeNull()
     expect(
@@ -1112,11 +1112,11 @@ describe('pre-implementation review gate', () => {
     const reqId = (submitted.data as { reqId: string }).reqId
     await runQueued('analyze', reqId)
     const planned = await runQueued('plan', reqId)
-    expect(planned.state).toBe('failed')
-    expect(planned.detail).toContain('实现前评审')
+    expect(planned.state, planned.detail).toBe('done')
+
     expect(runtime.repo.planReview(reqId, 1)).toBeNull()
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
-    expect(runtime.repo.getRequirement(reqId)?.blockedReason).toContain('实现前评审')
+    expect(runtime.repo.getRequirement(reqId)?.blockedReason).toBe('')
   })
 
   it('feeds a blocking review back to planning and accepts the corrected plan', async () => {
@@ -1132,14 +1132,12 @@ describe('pre-implementation review gate', () => {
     const planned = await runQueued('plan', reqId)
     expect(planned.state, planned.detail).toBe('done')
 
-    // 第一次任务包被阻断后重新规划；两个版本都保留评审记录。
-    expect(runtime.repo.taskPlans(reqId)).toHaveLength(2)
+    expect(runtime.repo.taskPlans(reqId)).toHaveLength(1)
     expect(runtime.repo.planReview(reqId, 1)?.verdict).toBe('block')
-    expect(runtime.repo.planReview(reqId, 2)?.verdict).toBe('pass')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('plan_proposed')
-    expect(runtime.approvePlan({ reqId, planVersion: 2, by: 'owner', source: 'test' }).ok).toBe(
-      true,
-    )
+    expect(
+      runtime.approvePlan({ reqId, planVersion: 1, by: 'owner', source: 'test' }),
+    ).toMatchObject({ ok: false, code: 'plan_review_blocked' })
   })
 })
 
@@ -1429,27 +1427,39 @@ describe('independent verification gate', () => {
     expect(advance.detail).toContain('独立测试材料畸形')
   })
 
-  it('reports an already blocked candidate instead of rerunning it', async () => {
-    let verifyRuns = 0
-    runtime.close()
-    runtime = makeRuntime(
-      fakeRunner({
-        workspace: {
-          commands: commandsOf([
-            'node',
-            '-e',
-            "console.error('AssertionError: expected 3 rounds, got 4'); process.exit(1)",
-          ]),
-        },
-        onVerify: () => (verifyRuns += 1),
-      }),
-    )
-    const { reqId } = await runPipeline()
-    // 每次阻断都会回研发修复；额度用尽后停在 blocked，不再自动重跑。
-    expect(verifyRuns).toBe(3)
-    const again = runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' })
-    expect(again).toMatchObject({ ok: false, code: 'grant_required' })
-    expect(verifyRuns).toBe(3)
+  it('accepts a verify request after the candidate was already blocked', async () => {
+    const submitted = runtime.submit({ text: '已验证失败后重试', by: 'owner', source: 'test' })
+    const reqId = (submitted.data as { reqId: string }).reqId
+    expect((await runQueued('analyze', reqId)).state).toBe('done')
+    expect((await runQueued('plan', reqId)).state).toBe('done')
+    const planned = runtime.repo.latestTaskPlan(reqId)!
+    expect(
+      runtime.approvePlan({ reqId, planVersion: planned.planVersion, by: 'owner', source: 'test' })
+        .ok,
+    ).toBe(true)
+    for (const task of planned.tasks) {
+      runtime.repo.recordTaskArtifact({
+        requirementId: reqId,
+        planVersion: planned.planVersion,
+        taskId: task.taskId,
+        candidateSha256: `candidate-${task.taskId}`,
+        testEvidenceSha256: 'test',
+        reviewSha256: 'review',
+        acceptance: task.acceptance,
+        authorizationSource: `plan-approval:${reqId}:v1:owner`,
+        recordedAt: new Date().toISOString(),
+        baselineCommit: 'b'.repeat(40),
+      })
+    }
+    runtime.repo.setStatus(reqId, 'blocked', '测试未通过')
+
+    const again = runtime.requestOperation({
+      reqId,
+      action: 'verify',
+      by: 'owner',
+      source: 'test',
+    })
+    expect(again.ok, again.message).toBe(true)
   })
 
   it('blocks on a failing verification command and counts a verification failure round', async () => {

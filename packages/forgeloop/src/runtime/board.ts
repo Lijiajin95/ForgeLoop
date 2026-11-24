@@ -1076,15 +1076,6 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
   }
   if (canAdvance(context)) actions.push('advance')
   if (retry.allowed) actions.push('requeue')
-  if (context.requirement.blockedReason.includes('工时已用尽')) {
-    actions.push('extend-budget')
-  }
-  if (
-    context.requirement.blockedReason.includes('额度已用尽') ||
-    context.requirement.blockedReason.includes('需要追加授权')
-  ) {
-    actions.push('grant-rounds')
-  }
   if (canVerify(context)) actions.push('verify')
   if (context.activeRequest || progress.running > 0 || progress.awaitingInput > 0) {
     actions.push('stop')
@@ -1094,20 +1085,14 @@ function buildFlowActions(context: ActionContext): BoardRequirementAction[] {
 }
 
 function applyPlanAction(actions: BoardRequirementAction[], context: ActionContext): void {
-  const { requirement, plan, execution, planReviewView, planValid, progress } = context
-  if (plan === null) {
-    const canPlan =
-      requirement.status === SPECIFIED &&
-      !context.activeRequest &&
-      progress.running === 0 &&
-      progress.awaitingInput === 0
-    if (canPlan) actions.push('plan')
-    return
-  }
-  const pendingPlan = requirement.status === PLAN_PROPOSED && execution.status !== 'authorized'
-  if (!pendingPlan) return
-  if (planReviewView?.verdict === 'pass' && planValid) actions.push('approve')
-  else if (!context.activeRequest && progress.running === 0) actions.push('plan')
+  const { requirement, plan, progress } = context
+  if (plan !== null) return
+  const canPlan =
+    requirement.status === SPECIFIED &&
+    !context.activeRequest &&
+    progress.running === 0 &&
+    progress.awaitingInput === 0
+  if (canPlan) actions.push('plan')
 }
 
 function canAdvance(context: ActionContext): boolean {

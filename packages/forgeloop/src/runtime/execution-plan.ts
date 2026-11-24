@@ -667,24 +667,11 @@ export class ExecutionPlan {
       }
       this.deps.repo.recordTaskPlan(plan)
       lastPlan = plan
-      const reviewOutcome = await this.deps.reviewPlan(requirement, analysis, plan, signal)
-      if (reviewOutcome.state !== 'done') {
-        this.deps.repo.setStatus(
-          reqId,
-          PLAN_PROPOSED,
-          '任务包已生成，但测试 Agent 的实现前评审未完成；不能批准',
-        )
-        return { state: reviewOutcome.state, detail: reviewOutcome.detail }
-      }
-      if (reviewOutcome.review.verdict === 'block') {
-        lastError = `实现前评审阻断：${reviewOutcome.review.blocking.join('；')}`
-        feedback = `\n\n上一次任务包被测试 Agent 的实现前评审阻断：\n- ${reviewOutcome.review.blocking.join('\n- ')}\n请修正技术方案、任务文件范围或测试命令后重新输出完整 JSON。`
-        continue
-      }
+      await this.deps.reviewPlan(requirement, analysis, plan, signal)
       this.deps.repo.setStatus(reqId, PLAN_PROPOSED)
       return {
         state: 'done',
-        detail: `已生成任务包 v${plan.planVersion}（${plan.tasks.length} 个任务）并通过实现前评审；等待批准`,
+        detail: `已生成任务包 v${plan.planVersion}（${plan.tasks.length} 个任务）；实现前评审只记录，不再阻断`,
       }
     }
     if (lastPlan) {

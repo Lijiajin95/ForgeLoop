@@ -368,15 +368,15 @@ describe('task failure advice', () => {
     )
   })
 
-  it('appends budget and human-decision advice', () => {
+  it('appends human-decision advice without a budget blocker', () => {
     const advice = buildTaskFailureAdvice({
       ...base,
       state: 'awaiting_user',
       reason: '未知',
       remainingRounds: 0,
     })
-    expect(advice?.actions.at(-2)).toContain('失败轮次额度已用尽')
     expect(advice?.actions.at(-1)).toContain('自动尝试次数已用尽')
+    expect(advice?.actions.some((action) => action.includes('失败轮次额度已用尽'))).toBe(false)
     expect(
       buildTaskFailureAdvice({ ...base, state: 'blocked', reason: '未知', remainingRounds: -1 })
         ?.actions,

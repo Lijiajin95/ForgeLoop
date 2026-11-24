@@ -676,7 +676,7 @@ describe('advance pipeline self verification and dev clarification', () => {
     })
   })
 
-  it('records a blocking issue from a malformed report with no blocking items', async () => {
+  it('repairs a blocking report with no items instead of stopping at a configured attempt cap', async () => {
     config = configWith({ maxVerificationAttempts: 1 })
     verifyQueue = [
       {
@@ -699,17 +699,9 @@ describe('advance pipeline self verification and dev clarification', () => {
     expect(issue.evidence.summary).toBe('')
     expect(issue.evidence.commands).toEqual([])
     expect(issue.evidence.logs).toEqual(['/tmp/report.json'])
-    expect(outcome).toEqual({
-      state: 'failed',
-      detail: `测试未通过：测试阻断但未给出条目；问题单 ${issue.issueId}（attempt 1）已加入研发队列`,
-    })
-    expect(statuses.at(-1)).toEqual([
-      'req-1',
-      'blocked',
-      `测试未通过，已创建问题单 ${issue.issueId}（attempt 1）：测试阻断但未给出条目；问题单已加入研发队列，将自动重新验证`,
-    ])
-    expect(repairCalls).toEqual([])
-    expect(issueUpdates).toEqual([])
+    expect(repairCalls).toHaveLength(1)
+    expect(outcome.state).toBe('done')
+    expect(statuses.at(-1)?.[1]).toBe('committed')
   })
 
   it('keeps a block without asking development to fix non-code failures', async () => {
@@ -769,7 +761,7 @@ describe('advance pipeline self verification and dev clarification', () => {
     expect(repairCalls).toEqual([])
   })
 
-  it('blocks a business-review failure with no blocking items when quota is exhausted', async () => {
+  it('repairs a business-review failure with no blocking items instead of stopping at the quota', async () => {
     remainingRounds = 0
     verifyQueue = [
       {
@@ -783,17 +775,10 @@ describe('advance pipeline self verification and dev clarification', () => {
 
     const outcome = await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)
 
-    expect(outcome).toEqual({
-      state: 'failed',
-      detail: '测试未通过且失败额度已用尽：业务验收未给出具体项',
-    })
-    expect(statuses.at(-1)).toEqual([
-      'req-1',
-      'blocked',
-      '测试未通过且失败额度已用尽：业务验收未给出具体项',
-    ])
+    expect(repairCalls).toHaveLength(1)
+    expect(outcome.state).toBe('done')
+    expect(statuses.at(-1)?.[1]).toBe('committed')
     expect(issueRecords).toEqual([])
-    expect(repairCalls).toEqual([])
   })
 
   it('keeps an open issue on failed repair and fixes it on a later success', async () => {

@@ -225,7 +225,7 @@
       ],
       "property_test": {
         "file": "packages/forgeloop/tests/property-invariants-advanced.test.ts",
-        "title": "never allows retry once failure rounds are exhausted",
+        "title": "allows retry regardless of remaining failure rounds",
         "min_runs": 200
       },
       "gates": [
@@ -1236,13 +1236,13 @@
     },
     {
       "id": "retry-exhausted",
-      "title": "重试耗尽阻断重新执行",
+      "title": "重试不受失败轮次限制",
       "risk": "P0",
       "tests": [
         "packages/forgeloop/tests/p0-scenarios.test.ts"
       ],
       "test_titles": [
-        "exhausted failure rounds block retry"
+        "allows retry regardless of exhausted failure rounds"
       ],
       "gates": [
         "scenarios"

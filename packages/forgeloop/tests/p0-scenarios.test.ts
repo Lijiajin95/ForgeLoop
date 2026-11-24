@@ -274,7 +274,7 @@ describe('P0 boundary and failure scenarios', () => {
     }
   })
 
-  it('exhausted failure rounds block retry', () => {
+  it('allows retry regardless of exhausted failure rounds', () => {
     const decision = retryDecision({
       status: 'blocked',
       blockedReason: '任务失败',
@@ -286,8 +286,8 @@ describe('P0 boundary and failure scenarios', () => {
       delivered: 0,
       total: 2,
     })
-    expect(decision.allowed).toBe(false)
-    expect(decision.reason).toContain('额度')
+    expect(decision.allowed).toBe(true)
+    expect(decision.reason).toBe('')
     const runtime = runtimeOf()
     const reqId = submit(runtime)
     runtime.repo.setStatus(reqId, 'blocked', '任务失败')

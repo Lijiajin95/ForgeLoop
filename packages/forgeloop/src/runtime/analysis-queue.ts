@@ -1,13 +1,11 @@
 import type { ForgeLoopConfig } from '../config.js'
 import { sourceTrusted } from '../domain/admission.js'
-import type { AnalysisMode } from '../domain/analysis.js'
+import { MAX_AUTO_ANALYSIS_RETRIES, type AnalysisMode } from '../domain/analysis.js'
 import type { Requirement } from '../domain/requirement.js'
 import type { RequirementQueue } from '../domain/requirement-queue.js'
 import { ANALYSIS_FAILED, isTerminal } from '../domain/status.js'
 import type { Repository } from '../records/repository.js'
 import { fail, ok, type OperationResult } from './operation-result.js'
-
-const MAX_AUTO_ANALYSIS_RETRIES = 3
 
 export const ANALYSIS_RETRY_SOURCE = 'system:analysis-retry'
 

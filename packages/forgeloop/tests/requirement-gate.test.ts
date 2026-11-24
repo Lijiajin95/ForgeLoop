@@ -244,7 +244,7 @@ function submit(text: string, session: string): string {
 
 beforeEach(async () => {
   project = await makeProject()
-  runtime = makeRuntime(gateRunner({ failVerifications: 4 }))
+  runtime = makeRuntime(gateRunner({ failVerifications: 3 }))
 })
 
 afterEach(() => {
@@ -268,35 +268,23 @@ describe('requirement pipeline gate', () => {
     expect(runtime.repo.planApproval(first, 1)).toBeNull()
     expect(runtime.autoAdvanceRequests()).toEqual([first])
 
-    // 第一轮推进：连续 3 次测试阻断，建单并停在 blocked；额度用尽后必须等待追加授权。
+    // 第一轮推进：阻断后自动修复并提交，不需要追加授权。
     const firstAttempt = await runNext(first, 'advance')
-    expect(firstAttempt.state).toBe('failed')
-    expect(runtime.repo.failureRounds(first)).toHaveLength(3)
+    expect(firstAttempt.state, firstAttempt.detail).toBe('done')
+    expect(runtime.repo.getRequirement(first)?.status).toBe(COMMITTED)
+    expect(runtime.repo.latestCommit(first)).not.toBeNull()
     expect(runtime.issues.issuesFor(first).map((issue) => issue.attempt)).toEqual([1, 2, 3])
-    expect(runtime.issues.latestOpen(first)?.attempt).toBe(3)
-    expect(runtime.repo.getRequirement(first)?.status).toBe('blocked')
-    expect(runtime.autoAdvanceRequests()).not.toContain(first)
-    // 第一个需求未收口时，第二个需求仍保持排队且没有分析请求。
-    expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(first)
+    expect(runtime.issues.issuesFor(first).every((issue) => issue.status === 'resolved')).toBe(true)
+    expect(runtime.repo.grantCount(first)).toBe(1)
+    expect(runtime.repo.failureRounds(first)).toHaveLength(3)
+    // 第一个需求收口前，第二个需求仍保持排队且没有分析请求。
     expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([second])
     expect(runtime.repo.pendingRequests('demo').some((request) => request.reqId === second)).toBe(
       false,
     )
-
-    // 追加授权后才允许继续修复与再次送验。
-    expect(runtime.grant({ reqId: first, by: 'owner' }).ok).toBe(true)
-    expect(runtime.autoAdvanceRequests()).toContain(first)
-    const secondAttempt = await runNext(first, 'advance')
-    expect(secondAttempt.state, secondAttempt.detail).toBe('done')
-    expect(runtime.repo.getRequirement(first)?.status).toBe(COMMITTED)
-    expect(runtime.repo.latestCommit(first)).not.toBeNull()
-    expect(runtime.issues.issuesFor(first).map((issue) => issue.attempt)).toEqual([1, 2, 3, 4])
-    expect(runtime.issues.issuesFor(first).every((issue) => issue.status === 'resolved')).toBe(true)
-    expect(runtime.repo.grantCount(first)).toBe(2)
-    expect(runtime.repo.failureRounds(first)).toHaveLength(4)
     expect(
       runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'block'),
-    ).toHaveLength(4)
+    ).toHaveLength(3)
     expect(
       runtime.repo.verificationsFor(first).filter((item) => item.verdict === 'pass'),
     ).toHaveLength(1)
@@ -317,7 +305,7 @@ describe('requirement pipeline gate', () => {
     const verifications = runtime.repo.verificationsFor(second)
     expect(verifications).toHaveLength(1)
     expect(verifications[0]?.verdict).toBe('pass')
-    expect(runtime.repo.verificationsFor(first)).toHaveLength(5)
+    expect(runtime.repo.verificationsFor(first)).toHaveLength(4)
     for (const issue of runtime.issues.issuesFor(first)) {
       expect(issue.requirementId).toBe(first)
       expect(issue.evidence.environment.verificationReportPath).not.toBe('')

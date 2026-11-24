@@ -77,7 +77,7 @@ describe('task failure advice', () => {
     expect(actions).toContain('正式测试日志')
   })
 
-  it('requires an explicit grant or re-plan when the failure budget is exhausted', () => {
+  it('does not require a grant when the failure budget is exhausted', () => {
     const advice = buildTaskFailureAdvice({
       state: 'awaiting_user',
       reason: '任务 queue-core 已尝试 2 次仍未通过；等待人工决定',
@@ -86,8 +86,8 @@ describe('task failure advice', () => {
     })
 
     const actions = advice!.actions.join('\n')
-    expect(actions).toContain('追加授权')
-    expect(actions).toContain('重试不能绕过额度')
+    expect(actions).not.toContain('追加授权')
+    expect(actions).toContain('自动尝试次数已用尽')
   })
 
   it('does not invent advice for running or delivered tasks', () => {

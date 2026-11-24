@@ -29,9 +29,18 @@ import {
   isTerminal,
   type TaskRunState,
 } from '../domain/status.js'
-import { workLimitSeconds } from '../domain/budget.js'
-import { attemptAllowed, ExecutionBudget } from '../domain/limits.js'
+import { attemptAllowed } from '../domain/limits.js'
 import { FAILURE_PLANNING, FAILURE_VERIFICATION } from '../domain/counting.js'
+import { MAX_AUTO_RETRIES } from '../domain/auto-retry.js'
+
+const MAX_REPAIR_ROUNDS = 3
+
+function businessReviewStopped(state: string, detail: string): boolean {
+  return (
+    state === 'block' &&
+    (detail.startsWith('业务验收未取得结论') || detail.startsWith('业务验收材料畸形'))
+  )
+}
 import { RuleViolationError, errorMessage } from '../domain/errors.js'
 import type { Repository } from '../records/repository.js'
 import type { IssueStore } from '../records/issues.js'
@@ -421,7 +430,7 @@ export class AdvancePipeline {
 ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给出具体阻断项'}
 
 请在同一工作区定位并修复，完成后用简短文本说明改了什么、如何验证。不要执行 git commit/push，程序会采集并固定新候选。`
-    for (let attempt = 1; attemptAllowed(attempt, this.deps.config.maxTaskAttempts); attempt += 1) {
+    for (let attempt = 1; attemptAllowed(attempt, MAX_AUTO_RETRIES); attempt += 1) {
       if (input.signal.aborted) return { ok: false, reason: '停止请求：修复未完成，现场保留' }
       const result = await input.session.send({
         prompt,
@@ -481,12 +490,6 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     if (!analysis || analysis.requirementVersion !== requirement.versions.length) {
       this.deps.repo.setStatus(reqId, 'blocked', '需求说明缺失或已过期；需要产品 Agent 重新澄清')
       return { ok: false, outcome: { state: 'failed', detail: '需求说明缺失或已过期' } }
-    }
-    const budget = this.deps.repo.budget(reqId)
-    const limitSeconds = workLimitSeconds(budget.limit)
-    if (limitSeconds > 0 && limitSeconds <= budget.consumedSeconds) {
-      this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需要显式延长或拆分需求')
-      return { ok: false, outcome: { state: 'failed', detail: '执行工时已用尽' } }
     }
     return { ok: true, requirement, analysis, admission }
   }
@@ -671,34 +674,18 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       blocking: verification.blocking,
       devWorkspace: workspace,
     })
-    if (this.deps.remainingFailureRounds(reqId) <= 0) {
+    if (round > MAX_REPAIR_ROUNDS) {
       const blocking = verification.blocking.join('；') || verification.detail
       this.deps.repo.setStatus(
         reqId,
         'blocked',
-        `测试未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；失败轮次额度已用尽，需有效追加授权后才能继续修复或再次送验`,
+        `测试未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；单次推进自动修复达到 ${MAX_REPAIR_ROUNDS} 轮上限，将自动重试`,
       )
       return {
         stop: true,
         result: {
           state: 'failed',
-          detail: `测试未通过：${blocking}；已保留问题单 ${issue.issueId}，等待追加授权`,
-        },
-      }
-    }
-    const maxVerificationAttempts = this.deps.config.maxVerificationAttempts
-    if (maxVerificationAttempts > 0 && round >= maxVerificationAttempts) {
-      const blocking = verification.blocking.join('；') || verification.detail
-      this.deps.repo.setStatus(
-        reqId,
-        'blocked',
-        `测试未通过，已创建问题单 ${issue.issueId}（attempt ${issue.attempt}）：${blocking}；问题单已加入研发队列，将自动重新验证`,
-      )
-      return {
-        stop: true,
-        result: {
-          state: 'failed',
-          detail: `测试未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）已加入研发队列`,
+          detail: `测试未通过：${blocking}；问题单 ${issue.issueId}（attempt ${issue.attempt}）保留，将自动重试`,
         },
       }
     }
@@ -891,6 +878,17 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     } = input
     let candidate = input.candidate
     for (let round = 1; ; round += 1) {
+      if (round > MAX_REPAIR_ROUNDS + 1) {
+        this.deps.repo.setStatus(
+          reqId,
+          'blocked',
+          `测试未通过且自动修复达到 ${MAX_REPAIR_ROUNDS} 轮上限；将自动重试`,
+        )
+        return {
+          state: 'failed',
+          detail: `测试未通过且自动修复达到 ${MAX_REPAIR_ROUNDS} 轮上限`,
+        }
+      }
       const inactive = this.inactiveReason(reqId)
       if (inactive) return { state: 'failed', detail: inactive }
       this.deps.repo.setStatus(
@@ -912,6 +910,11 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       if (afterVerifyInactive) return { state: 'failed', detail: afterVerifyInactive }
       if (verification.verification === null && verification.state === 'block') {
         return this.recordVerificationPrepFailure(reqId, verification.detail)
+      }
+      if (
+        businessReviewStopped(verification.state, verification.detail)
+      ) {
+        return { state: 'failed', detail: verification.detail }
       }
       if (verification.state === 'pass') {
         this.deps.issues.resolveOpen(reqId, this.deps.now())
@@ -941,14 +944,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
         candidate = handled.candidate
         continue
       }
-      if (this.deps.remainingFailureRounds(reqId) === 0) {
-        this.deps.repo.setStatus(
-          reqId,
-          'blocked',
-          `测试未通过且失败额度已用尽：${verification.blocking.join('；') || verification.detail}`,
-        )
-        return { state: 'failed', detail: `测试未通过且失败额度已用尽：${verification.detail}` }
-      }
+
       const repaired = await this.repairCandidate({
         reqId,
         requirement,
@@ -1310,13 +1306,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
     plan: TaskPlan,
   ): { state: 'failed'; detail: string } | null {
     this.deps.repo.ensureBudget(reqId, planLimitSeconds(plan.tasks))
-    const budget = new ExecutionBudget(
-      workLimitSeconds(this.deps.repo.budget(reqId).limit),
-      this.deps.repo.budget(reqId).consumedSeconds,
-    )
-    if (budget.canStartAction()) return null
-    this.deps.repo.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
-    return { state: 'failed', detail: '执行工时已用尽；需显式延长或拆分任务' }
+    return null
   }
 
   private async deliverTaskSafely(input: {

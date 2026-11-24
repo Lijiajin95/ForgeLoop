@@ -13,6 +13,7 @@ import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runne
 import type { PlannedTask, TaskPlan } from '../src/domain/task-plan.js'
 import type { Requirement } from '../src/domain/requirement.js'
 import { sha256OfText } from '../src/domain/delivery.js'
+import { MAX_AUTO_RETRIES } from '../src/domain/auto-retry.js'
 import {
   EXECUTING,
   TASK_RUN_BLOCKED,
@@ -376,9 +377,11 @@ describe('TaskDelivery development rounds', () => {
     })
     const outcome = await deliver(built, planOf([taskOf('a')]), 'a')
     expect(outcome.state).toBe('awaiting_user')
-    expect(outcome.reason).toBe('任务 a 已尝试 2 次仍未通过；等待人工决定')
-    expect(built.devCalls()).toBe(2)
-    expect(built.devPrompts[1]).toContain('上一次实现回合失败：model unavailable。请重新完成。')
+    expect(outcome.reason).toBe(`任务 a 已尝试 ${MAX_AUTO_RETRIES} 次仍未通过；等待人工决定`)
+    expect(built.devCalls()).toBe(MAX_AUTO_RETRIES)
+    expect(built.devPrompts[MAX_AUTO_RETRIES - 1]).toContain(
+      '上一次实现回合失败：model unavailable。请重新完成。',
+    )
     expect(taskRunState()).toBe(TASK_RUN_FAILED)
     expect(taskRunReason()).toBe('model unavailable')
   })
@@ -480,11 +483,11 @@ describe('TaskDelivery independent review', () => {
     })
     const outcome = await deliver(built, planOf([taskOf('a')]), 'a')
     expect(outcome.state).toBe('awaiting_user')
-    expect(outcome.reason).toContain('独立审查阻断且失败轮次额度已用尽（1/1）')
+    expect(outcome.reason).toBe(`任务 a 已尝试 ${MAX_AUTO_RETRIES} 次仍未通过；等待人工决定`)
     expect(taskRunState()).toBe(TASK_RUN_FAILED)
-    expect(repo.failureRounds(REQ_ID).map((round) => round.stage)).toEqual([
-      'implementation_review',
-    ])
+    expect(repo.failureRounds(REQ_ID).map((round) => round.stage)).toEqual(
+      Array.from({ length: MAX_AUTO_RETRIES }, () => 'implementation_review'),
+    )
   })
 })
 
@@ -540,8 +543,9 @@ describe('TaskDelivery formal test', () => {
     })
     const outcome = await deliver(built, planOf([taskOf('a')]), 'a')
     expect(outcome.state).toBe('awaiting_user')
-    expect(outcome.reason).toContain('正式测试失败且失败轮次额度已用尽（1/1）')
+    expect(outcome.reason).toBe(`任务 a 已尝试 ${MAX_AUTO_RETRIES} 次仍未通过；等待人工决定`)
     expect(repo.failureRounds(REQ_ID)[0]?.summary).toBe('正式测试退出码 null')
+    expect(repo.failureRounds(REQ_ID)).toHaveLength(MAX_AUTO_RETRIES)
     expect(repo.taskArtifacts(REQ_ID, 1)).toEqual([])
   })
 })

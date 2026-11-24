@@ -618,19 +618,15 @@ describe('executeVerification input gates', () => {
     expect(built.testCalls()).toBe(0)
   })
 
-  it('refuses to start verification when the execution budget is spent', async () => {
+  it('ignores an exhausted execution budget', async () => {
     const built = setup({
       plan: planOf([taskOf('a', { limits: { limitSeconds: 1, maxFailureRounds: 2 } })]),
     })
     repo.ensureBudget(REQ_ID, 1)
     repo.chargeBudget(REQ_ID, 5)
     const outcome = await built.pipeline.executeVerification(REQ_ID, signal)
-    expect(outcome).toEqual({
-      state: 'failed',
-      detail: '执行工时已用尽；需显式延长或拆分任务',
-    })
-    expect(statusOf()).toBe('blocked')
-    expect(blockedReasonOf()).toBe('执行工时已用尽；需显式延长或拆分任务')
+    expect(outcome.state).toBe('done')
+    expect(statusOf()).toBe(EXECUTING)
   })
 })
 
@@ -876,7 +872,7 @@ describe('completeVerification outcomes', () => {
       )}`,
     )
     expect(built.reopened).toEqual([])
-    expect(blockedReasonOf()).toContain('失败轮次额度已用尽')
+    expect(blockedReasonOf()).toContain('独立测试阻断')
   })
 
   it('keeps environment failures out of code repair and appends a same-candidate retry', async () => {

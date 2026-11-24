@@ -762,13 +762,13 @@ describe('execution-dev task turns', () => {
     const formalTest = formalTestScript([{ exitCode: 0 }])
     const fixture = await developFixture({ maxTaskAttempts: 2, formalTest })
     const session = scriptedSession((request) => completedRun(request))
-    const reason = '任务 t1 已尝试 2 次仍未通过自验；现场保留，等待修复或授权'
+    const reason = '任务 t1 已尝试多次仍未通过自验；现场保留，等待自动重试'
 
     const outcome = await developTask(fixture, session)
 
     expect(outcome).toEqual({ state: 'blocked', reason })
-    expect(session.calls).toHaveLength(2)
-    expect(session.calls[1]?.prompt).toContain(
+    expect(session.calls).toHaveLength(20)
+    expect(session.calls[19]?.prompt).toContain(
       '上一次研发没有产生任何文件改动。请真正实现任务目标。',
     )
     expect(formalTest.calls).toEqual([])

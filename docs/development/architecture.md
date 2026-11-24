@@ -22,8 +22,8 @@ ForgeLoop 的产品价值是复杂软件项目中的目标、约束、研发、�
 
 当前插件没有人类 slash 命令表面。需求入口是 **ForgeLoop 业务会话**：用户选择 `forgeloop`
 agent preset 后，在普通输入框输入；插件在 `agent/pre-step` 接管人类输入，交给产品 Agent
-澄清为结构化需求说明。任务包批准、推进、验收与停止通过浏览器认证动作实现；例外取舍与追加授权仍没有完整入口，
-已批准任务包默认冻结（修改需所有者显式许可并说明原因），
+澄清为结构化需求说明。推进、验证、验收、部署与停止通过浏览器认证动作实现；研发侧任务包批准与额度追加
+已不再是推进前置，例外取舍仍没有独立入口。已批准任务包默认冻结（修改需所有者显式许可并说明原因），
 不能用工具参数或文档声明代替。
 
 ## 2. 运行结构
@@ -305,8 +305,8 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      前后核对 HEAD 与 `verification/` 之外的文件变化，任何越界都记为完整性问题。第一条命令执行前
      封存 `verification/` 材料摘要；之后换脚本或换输入都会使正向结果失效并要求重新测试。
    - 错误对照必须取得非零退出码且输出命中目标规则；无退出码、超时、信号终止或无关报错都不算有效
-     对照。失败额度由协调器领取、定向修复与再次送验共用：额度用尽后
-     问题单本身不再自动入队，必须由有效追加授权恢复。
+     对照。失败轮次、工时与尝试次数只累计展示，不再阻断推进；未收口问题单由协调器按自动重试上限重新排队（见 4.4.1）。
+     未收口问题单由协调器自动重新排队。
    - 执行轮结束时，方案中任一 label 没有真实执行记录、执行上下文丢失或收到停止请求，都按当前
      attempt 写入 `verification.json` 并计入 `verification-prep` 失败轮；中止、超时、材料错误与
      上下文丢失分别记录 `failureKind`，不建需要改代码的研发问题单。业务终审超时/畸形另写
@@ -323,18 +323,17 @@ label，与工具白名单外的一切命令无关；`forgeloop_ops_artifact`/`f
      误判为不可核对。
    - 测试阻断时创建关联需求 ID 的 ForgeLoop 内建问题单：固化本次验证的命令、退出码、日志路径、
      运行环境与状态。同一推进请求内先按问题单在**同一研发会话与工作区**定向修复并重新验证；
-     单请求验证重试次数由 `maxVerificationAttempts` 控制（默认 `-1` 表示不限，页面显示 MAX），
-     显式设为 `> 0` 时达到该次数仍失败就收口为 `blocked`，由协调器依据未收口问题单自动排队
+     单次推进最多自动修复 3 轮；`maxVerificationAttempts` 仍可配置但不再阻断，
+     修复 3 轮仍失败就收口为 `blocked`，由协调器自动重试排队
      下一次修复与验证。跨请求重试同样默认不设轮次上限，attempt 与验证历史持续累积，不归档全部
-     任务、不清空失败轮次、不重建任务包。业务验收阻断默认按不限的失败轮次额度处理；显式配置
-     `failureRoundsPerGrant > 0` 时按额度阻塞。
+     任务、不清空失败轮次、不重建任务包；`failureRoundsPerGrant` 只用于展示，不再阻塞。
    - **系统准入需求的连续验证**（`runtime/verification-pipeline.ts`）与上面同一会话的旧验证路径并存：
      研发产物交付后按任务 diff 重建固定候选，测试 Agent 在候选工作区写
      `verification/{commands.json,report.json}`；程序重跑命令。该路径仍保留旧的补丁式对照兼容，
      但模型工具面已不再提供源码补丁登记；新的黑盒错误对照由 `expect_failure` 命令承担。
    - 阻断按事实分类（`domain/verification-failure.ts`）：实现缺陷、用例错误、环境异常、证据不足、
-     需求争议、原因未明。只有实现缺陷且仍有失败额度时才回研发定向修复；其余保留阻断并给出各自处置，
-     不要求研发产生无意义 diff，也不把分类当作放行。
+     需求争议、原因未明。只有实现缺陷才回研发定向修复；环境、用例与证据不足类阻塞由自动重试
+     重新排队；需求争议保留给所有者处置。自动重试不把分类当作放行，也不要求研发产生无意义 diff。
    - 每次验证尝试有独立 `attemptId`、序号与 `previousAttemptId`，证据目录为
      `verifications/<req>/v<plan>/<candidate 前 16 位>/attempt-<n>/`；`requirement_verification_attempts`
      追加保存，`requirement_verifications` 只作为最新结果投影。同一候选只对已知非实现缺陷做有界复验
@@ -450,7 +449,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
 - **可安装交付率**：按项目与受理日期（UTC）归组，分母是截止时点前已受理的全部需求，失败、阻塞、
   取消和未完成都留在分母；分子要求“截止时生效的需求版本存在可安装交付且 `availableAt ≤ 截止时点`”。
   未达成需求连同当前状态与已等待分钟一并返回。
-- **人工介入耗时**：已有权威记录（澄清回答、业务决定、追加授权、延长工时、停止、取消）只有时刻，
+- **人工介入耗时**：已有权威记录（澄清回答、业务决定、部署决定、停止、取消）只有时刻，
   作为介入事实列出原因但显示「时长未知」；可观测的处理区间写在 `human_interventions`，
   由 `intervention` 端点记录（所有者身份、单次不超过 24 小时、结束不得晚于当前时刻），
   聚合时同一人的重叠区间只计一次。
@@ -473,7 +472,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   声明覆盖它的任务，其他行保留并可“显示全部”；没有 `point_ids` 的旧验收归入“尚未关联”，
   报告只有场景文字时留在候选层级。按任务与待办队列占主体全宽；队列行先给原因，再给影响对象与阶段，
   最后给一个查看动作。搜索作用于工作台的需求/任务/问题记录。
-- 三列上方渲染一行当前可用的「下一步」按钮（产品：`plan`/`retry-analysis`；研发：`approve`/`advance`/`requeue`；
+- 三列上方渲染一行当前可用的「下一步」按钮（产品：`plan`/`retry-analysis`；研发：`advance`/`requeue`；
   验证：`verify`），动作集只取自服务端 `actions`，阶段按钮与「更多」菜单不重复。`specified` 且尚无任务包时
   服务端新提供 `plan`；有活动请求时不再提供，避免重复提交。
 - 待办队列由同路由的只读 `attention` 分支提供：在项目权威记录上先聚合全部待办，再按优先程度、
@@ -536,10 +535,10 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
 - 状态区分：`awaiting_input` 表示最近活动显示 `ask_user_question`；`stopRequested` 表示存在未恢复的
   主动停止记录，不等于已经停稳。两者都不等于任务已经停稳或结果已经收口；中断的运维动作以 `interrupted` 记录，
   根因报告作为观测与证据展示，不是新的业务状态。
-- 需求级动作由服务端 `actions` 判定：`plan`、`approve`、`advance`、`verify`、`requeue`、
-  `build`、`deploy`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、额度、任务顺序与
+- 需求级动作由服务端 `actions` 判定：`plan`、`advance`、`verify`、`requeue`、
+  `build`、`deploy`、`stop`、`cancel`；任务级 `retry` 仍由 `retryTask` 复核批准、任务顺序与
   在途请求。准入需求在 `committed` 后即可 `build`；旧链路仍要求验收。`requeue` 在失败停在 blocked 后重新排队一次执行（与 `retry` 共用 `retryDecision`：
-  额度、在途请求、批准状态与终态都在判定里拦下，不新建任务包、不清零失败轮次）；协调器的
+  在途请求、批准状态与终态都在判定里拦下，不新建任务包、不清零失败轮次）；协调器的
   `autoAdvance` 打开时，同一判定也会自动为 blocked 需求排队；`build` 对旧链路要求验收后构建，对准入链路要求验证、
   业务验收、提交与候选齐全，且只从已测试工作区构建；`deploy` 只做安装后核对。批准入口还会按现行 `validateTaskPlan` 复校已落库
   任务包，旧规则下生成的任务包不会被放行。
@@ -552,9 +551,9 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   入队与执行两处都校验冻结状态；只有所有者显式确认并说明原因（端点 `confirmPlanChange=true`
   与 `reason`，来源写入 `plan-change:<原因>`）才允许生成新版本。
 - **测试失败回研发**：独立测试阻断时，运行时归档旧产物、清空交付并把阻断问题写回任务运行原因，
-  在同一持久请求内重新交给执行 Agent 修复，再重新验证；任务包版本不变。默认不限制修复次数
-  （`failureRoundsPerGrant=0`、`maxVerificationAttempts=0`）；显式配置额度时，用尽后停在 blocked，
-  等待追加授权或所有者决定。
+  在同一持久请求内重新交给执行 Agent 修复，再重新验证；任务包版本不变。失败轮次、工时与验证次数都不再阻断；
+  单次推进最多自动修复 3 轮，之后停在 blocked，等待协调器自动重试（最多 20 次，指数退避）；
+  业务争议与人工决定类阻塞除外。
 - 天工页不提供验收；验收仍在任务包会话完成。页面不另存业务状态，所有事实来自 SQLite 与登记证据。
 
 ### 4.3.1 工作区绑定与隔离（2026-11-12）
@@ -592,9 +591,9 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
 
 ### 4.4 放开限制与自主率（2026-11-03）
 
-- **限额语义统一**：`-1` 表示不限，界面显示 MAX；正数恢复原行为。任务工时、需求工时、
-  任务尝试、失败轮次/追加授权与验证次数默认 `-1`，配置项与统计保留；格式重试类仍有正数上限
-  （规划 3、实现前评审 2、分析/诊断 3），避免畸形输出无限循环。
+- **限额语义统一**：任务工时、需求工时、任务尝试、失败轮次与验证次数只累计展示、不再阻断推进；
+  配置值只影响展示与审计，`-1` 在界面显示 MAX；自动重试与单次修复动作最多 20 次、单次推进自动修复最多 3 轮（见 4.4.1）；格式重试类仍有正数上限
+  （规划 3、分析/诊断 3），避免畸形输出无限循环。
 - **来源准入放开**：默认 `allowAnySource=true`、`requireOwner=false`，任何非空来源都可进入系统
   准入，需求来源与提交者在 `requirements`/`requirement_versions` 完整记录；收紧时显式设置
   `allowAnySource=false` 并维护 `trustedSources`。运维事件在 `awaiting_decision` 状态也可生成
@@ -608,6 +607,22 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
 - **自主率**：看板 `autonomy` 从权威记录计算研发/运维的人工介入率与自主成功率；需求或事件为零
   时比率为 `null`，页面显示“无样本”，不把空样本算成 0% 或 100%。分子分母随看板一并返回，可回查
   需求版本、授权、工时延长审计、请求、提交、验证与运维事件。
+
+### 4.4.1 取消研发侧授权与额度、自动重试（2026-11-24）
+
+所有者决定：研发推进不再需要人类批准或额度追加，保留系统准入、部署、上线与验收的授权。
+
+- **额度不阻断**：失败轮次、工时、任务尝试与验证次数只记录、展示与审计，不再使需求进入 blocked；
+  `failureRoundsPerGrant`、`maxTaskAttempts`、`maxVerificationAttempts` 仍保留配置项，但正数也不再拦截。
+- **授权前置移除**：看板不再提供 `approve`、`grant-rounds`、`extend-budget` 动作；旧端点保留为兼容记录
+  （批准仍写入 `owner-approval`），但准入需求无需批准即可 `advance`。系统准入仍是唯一必需的研发门禁；
+  部署、上线、验收与运维处置仍需所有者独立授权。实现前评审改为只记录，不再阻断任务包生成。
+- **自动重试**：协调器每轮扫描 `blocked` 需求，若最近一次失败轮次属于实现修复类阶段
+  （规划、实现审查、正式测试、验证、业务验收、宿主中断）且无停止、无在途请求，则自动排入 `advance`。
+  每需求最多 20 次，指数退避 30 秒至 30 分钟；手动请求会重置连续计数。需求争议、澄清、承诺冲突、
+  部署授权与取消等需要人工判断的阻塞不自动重试。
+- **单次推进边界**：同一推进请求内自动修复最多 3 轮、同一修复动作最多 20 次 Agent 回合；达到上限后收口为
+  `blocked`，由自动重试继续，避免模型无进展时无限循环。限额与失败记录继续按原表累计，不清零历史。
 
 ## 5. 持久化
 
@@ -698,8 +713,8 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   `by=owner` 或 `approved=true`，也不能触发
   推进或验收。`forgeloop_impact` 默认不调用模型；显式 `explain=true` 的推断与事实分区，
   推断不能作为批准、推进或验收依据。
-- **客户决定入口与执行授权**：普通需求由系统准入自动推进；浏览器认证动作保留停止、取消、追加授权、
-  发布/部署、运维处置与真正的业务例外取舍。
+- **客户决定入口与执行授权**：普通需求由系统准入自动推进；浏览器认证动作保留停止、取消、
+  发布/部署、运维处置与真正的业务例外取舍；研发侧任务包批准不再是推进前置。
   执行授权只有两个来源，由 `domain/authorization.ts` 统一判定：所有者的任务包批准
   （`owner-approval`，含实现前评审与版本绑定）或系统准入（`system-admission`，绑定需求版本）。
   服务端推进/验证入口、候选与验证流水线、看板动作都调用同一判定，不再各自比对批准记录；
@@ -730,7 +745,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   与 `conversation.chat.node` 注册节点和渲染器。
 - Web 接缝（可选）：宿主半用 `ctx.inject(['connection'])` 注册 `ctx.connection.fetch.register`
   的认证路由 `/api/forgeloop/board`，端点 `board`、`detail`、`session`、`task`、`execution`、
-  `plan`、`approve`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
+  `plan`、`advance`、`verify`、`requeue`、`build`、`deploy`、`retry`、`cancel`、`accept`、`stop`，
   以及运维 `ops`、`ops-detail`、`ops-decide`、`ops-close`、`ops-request-fix`，和只读 `reliability`、
   需求库 `library`（条目索引与摘要）与 `library-entry`（按 id 读取单条正文，引用条目返回被引用文档），
   以及一键重建 `library-rebuild-run`（owner 写，在途时 409）、`library-rebuild-status`（只读）、

@@ -300,7 +300,7 @@ describe('product analysis failure and retry', () => {
     expect(view?.actions).toContain('retry-analysis')
   })
 
-  it('stops automatic retries after three attempts and keeps every transcript', async () => {
+  it('stops automatic retries after the configured attempts and keeps every transcript', async () => {
     next = script('', { status: 'error', reason: '模型超时' })
     const reqId = submit()
     await runtime.analyzeRequirement(reqId)
@@ -315,10 +315,17 @@ describe('product analysis failure and retry', () => {
     expect(runtime.repo.pendingRequests('demo')).toEqual([])
 
     const attempts = runtime.repo.analysisAttempts(reqId)
-    expect(attempts.map((attempt) => attempt.kind)).toEqual(['initial', 'auto', 'auto', 'auto'])
+    expect(attempts.map((attempt) => attempt.kind)).toEqual([
+      'initial',
+      ...Array.from({ length: MAX_AUTO_ANALYSIS_RETRIES }, () => 'auto'),
+    ])
     expect(attempts.every((attempt) => attempt.outcome === 'failed')).toBe(true)
-    expect(new Set(attempts.map((attempt) => attempt.transcriptPath)).size).toBe(4)
-    expect(attempts.map((attempt) => attempt.attempt)).toEqual([1, 2, 3, 4])
+    expect(new Set(attempts.map((attempt) => attempt.transcriptPath)).size).toBe(
+      MAX_AUTO_ANALYSIS_RETRIES + 1,
+    )
+    expect(attempts.map((attempt) => attempt.attempt)).toEqual(
+      Array.from({ length: MAX_AUTO_ANALYSIS_RETRIES + 1 }, (_, index) => index + 1),
+    )
   })
 
   it('retries nothing while a failure is still being processed', async () => {
@@ -356,8 +363,12 @@ describe('product analysis failure and retry', () => {
     expect(outcome.state, outcome.detail).toBe('done')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe(SPECIFIED)
     const attempts = runtime.repo.analysisAttempts(reqId)
-    expect(attempts).toHaveLength(5)
-    expect(attempts.at(-1)).toMatchObject({ attempt: 5, kind: 'manual', outcome: 'done' })
+    expect(attempts).toHaveLength(MAX_AUTO_ANALYSIS_RETRIES + 2)
+    expect(attempts.at(-1)).toMatchObject({
+      attempt: MAX_AUTO_ANALYSIS_RETRIES + 2,
+      kind: 'manual',
+      outcome: 'done',
+    })
   })
 
   it('refuses a manual retry unless the analysis failed', async () => {

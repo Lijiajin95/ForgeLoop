@@ -238,7 +238,7 @@ describe('runtime defaults', () => {
     expect(board.issues[0]?.detail).toContain('额度 MAX')
   })
 
-  it('still enforces a configured failure-round quota', () => {
+  it('ignores a configured failure-round quota', () => {
     runtime.close()
     runtime = makeRuntime({ failureRoundsPerGrant: 2 })
     const reqId = 'req-limited-retry'
@@ -250,7 +250,7 @@ describe('runtime defaults', () => {
     const view = runtime.status(reqId).data as {
       grantQuota: { grants: number; used: number; remaining: number | null }
     }
-    expect(view.grantQuota).toEqual({ grants: 1, used: 3, remaining: 0 })
+    expect(view.grantQuota).toEqual({ grants: 1, used: 3, remaining: null })
     const retried = runtime.retryTask({
       reqId,
       planVersion: 1,
@@ -258,7 +258,7 @@ describe('runtime defaults', () => {
       by: 'owner',
       source: 'test-retry',
     })
-    expect(retried.code).toBe('grant_required')
+    expect(retried.ok).toBe(true)
   })
 
   it('keeps charging and reporting work time while the budget stays unlimited', () => {

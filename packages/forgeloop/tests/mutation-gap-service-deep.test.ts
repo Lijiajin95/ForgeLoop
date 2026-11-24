@@ -447,7 +447,7 @@ describe('需求只读视图', () => {
       delivered: ['t1'],
       grants: 3,
       failureRounds: 1,
-      grantQuota: { grants: 3, used: 1, remaining: 2 },
+      grantQuota: { grants: 3, used: 1, remaining: null },
       approval: null,
     })
     expect(data.failureRoundDetails).toEqual([
@@ -839,15 +839,6 @@ describe('requestOperation 守卫', () => {
       runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' }),
     ).toEqual({
       ok: false,
-      code: 'grant_required',
-      message: `需求 ${reqId} 的失败轮次额度已用尽；需要追加授权后才能继续验证`,
-    })
-
-    runtime.repo.appendGrant(reqId, 'owner', NOW)
-    expect(
-      runtime.requestOperation({ reqId, action: 'verify', by: 'owner', source: 'test' }),
-    ).toEqual({
-      ok: false,
       code: 'not_delivered',
       message: '仍有任务未交付，不能开始独立测试：t1、t2',
     })
@@ -1209,11 +1200,7 @@ describe('retryTask 资格判定', () => {
         by: 'owner',
         source: 'test',
       }),
-    ).toEqual({
-      ok: false,
-      code: 'grant_required',
-      message: `需求 ${exhausted} 的失败轮次额度已用尽；需要追加授权或重新规划后再重试`,
-    })
+    ).toMatchObject({ ok: true })
 
     const predecessor = submit('req-retry-predecessor')
     seedPlan(predecessor)

@@ -978,7 +978,7 @@ describe('continuous four-Agent flow', () => {
     expect(advance.detail).toContain('业务验收材料畸形')
   })
 
-  it('stops after one verification failure until a new grant is recorded', async () => {
+  it('repairs a verification failure without waiting for a new grant', async () => {
     runtime.close()
     runtime = makeRuntime(fakeRunner({ failFirstVerification: true }), {
       failureRoundsPerGrant: 1,
@@ -992,16 +992,7 @@ describe('continuous four-Agent flow', () => {
     await runNext(reqId, 'analyze')
     runtime.autoAdvanceRequests()
     const first = await runNext(reqId, 'advance')
-    expect(first.state).toBe('failed')
-    expect(first.detail).toContain('等待追加授权')
-    expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
-    expect(runtime.autoAdvanceRequests()).not.toContain(reqId)
-
-    const granted = runtime.grant({ reqId, by: 'owner' })
-    expect(granted.ok, granted.message).toBe(true)
-    runtime.autoAdvanceRequests()
-    const second = await runNext(reqId, 'advance')
-    expect(second.state, second.detail).toBe('done')
+    expect(first.state, first.detail).toBe('done')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe(COMMITTED)
   })
 
@@ -1259,7 +1250,7 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('已尝试 2 次')
+    expect(advance.detail).toContain('已尝试多次仍未通过自验')
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 
@@ -1276,7 +1267,7 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('业务验收阻断')
+    expect(advance.detail).toContain('自动修复达到 3 轮上限')
     expect(runtime.repo.failureRounds(reqId).length).toBeGreaterThanOrEqual(3)
   }, 120_000)
 
@@ -1293,7 +1284,7 @@ describe('continuous four-Agent flow', () => {
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
     expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('业务结果不符合预期')
+    expect(advance.detail).toContain('自动修复达到 3 轮上限')
   }, 120_000)
 
   it('does not duplicate an advance request that is already queued', async () => {
@@ -1524,14 +1515,13 @@ describe('continuous four-Agent flow', () => {
     })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runNext(reqId, 'analyze')
-    // 默认限额为 0（不限），这里显式设一个已经用尽的 1 秒限额来测试阻断。
+    // 显式设一个已经用尽的 1 秒限额；额度只记录，不再阻断推进。
     runtime.repo.ensureBudget(reqId, 1)
     runtime.repo.chargeBudget(reqId, 1)
     runtime.autoAdvanceRequests()
     const advance = await runNext(reqId, 'advance')
-    expect(advance.state).toBe('failed')
-    expect(advance.detail).toContain('工时已用尽')
-    expect(runtime.repo.latestTaskPlan(reqId)).toBeNull()
+    expect(advance.state, advance.detail).toBe('done')
+    expect(runtime.repo.latestTaskPlan(reqId)).not.toBeNull()
   })
 
   it('records an aborted development turn as blocked without a running task', async () => {

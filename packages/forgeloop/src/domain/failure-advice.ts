@@ -183,9 +183,6 @@ function adviceForMissingReason(): TaskFailureAdvice {
 
 function appendBudgetAdvice(actions: readonly string[], input: TaskFailureInput): string[] {
   const result = [...actions]
-  if (input.remainingRounds === 0) {
-    result.push('失败轮次额度已用尽：需要追加授权或重新规划后再重试，重试不能绕过额度。')
-  }
   if (input.state === 'awaiting_user') {
     result.push('自动尝试次数已用尽；这是一次人工决定，确认范围与证据后再重试。')
   }

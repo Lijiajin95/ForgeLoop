@@ -10429,3 +10429,28 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 - 假设的验证状态（untested／validated／invalidated）与证据绑定尚未实现；
 - `CR-n` 变更事件、追踪矩阵闭环仍是后续批次。
+
+## 283. 研发侧去授权与去额度、自动重试（2026-11-24）
+
+所有者要求“取消授权/额度限制；非必要人工介入的场景支持自动重试”，并确认范围：保留系统准入与部署、上线、验收授权；自动重试需要上限与退避；配置项保留但不再阻断。方向性决定见 [ADR 0014](../development/adr/0014-remove-dev-authorization-and-quota.md)。
+
+### 283.1 改动
+
+- **额度**：`remainingFailureRounds` 恒为不限；工时守卫、任务尝试与验证尝试上限不再拦截。任务交付的独立审查与正式测试失败轮次不再受授权额度限流，全部累计。看板移除 `approve`、`grant-rounds`、`extend-budget` 动作；旧端点保留为兼容记录，不再作为推进门禁。
+- **授权**：准入需求无需任务包批准即可推进；实现前评审只记录，不再阻断任务包生成或触发重新规划。`approvePlan` 保留实现前评审前置，仅供旧流程与审计，不属于正常推进链路。
+- **自动重试**：协调器每轮扫描 `blocked` 需求；最近失败阶段属于规划、实现审查、正式测试、验证、业务验收或宿主中断，且无主动停止、无在途请求、阻塞原因不含需求争议、澄清、承诺、冲突、部署、授权、取消时，自动排入 `advance`。每需求上限 20 次，退避 30 秒起、指数增长、上限 30 分钟；手动请求重置连续计数。分析失败的自动重试上限同步为 20。
+- **单次推进边界**：同一推进请求内自动修复最多 3 轮、同一修复动作最多 20 个 Agent 回合；达到上限收口为 `blocked` 并交由自动重试，避免无进展时无限循环。业务终审材料畸形或模型失败标记 `repairRecommended: false`，不再空转代码修复。
+
+### 283.2 测试与证据
+
+- 新增 `auto-retry.test.ts`：首次退避、连续退避、20 次上限、人工阻塞、停止、在途去重，共 7 个行为用例。
+- 更新额度、看板动作、评审前置与重试用例：`status-board`、`unlimited-execution`、`coverage-advance-pipeline`、`coverage-advance-self-verification`、`coverage-pipeline-delivery`、`coverage-pipeline-verification`、`mutation-gap-advance`、`mutation-gap-exec-integration`、`mutation-gap-service-deep`、`service`、`verification`、`requirement-gate`、`continuous-flow`、`product-analysis`、`runtime-status-view`、`property-invariants*`、`p0-scenarios`、`failure-advice`、`issue-retry-loop`。
+- Linux 容器全量检查（`node:26.13.0-bookworm`，`make check`）：合并 `main@db6876e` 前，镜像 `forgeloop-check:t120` 全绿（239 个文件、2667 通过、1 跳过、0 失败）；rebase 后镜像 `forgeloop-check:t121` 为 244 个文件、2696 通过、1 跳过、2 失败，两处失败在 pristine `main@db6876e` 同样复现（`mutation-gap-views-deep` 的分析提示词快照、`property-invariants-advanced` 的分析 JSON 往返），与本批无关。静态检查、契约、可靠性与文档检查同批通过。
+- Windows 本机既有失败（本轮开始前已在 pristine main 复现）：`mutation-gap-verify-deep.test.ts` 2 个计时断言、`property-invariants-advanced.test.ts` 1 个 JSON 往返用例；与本次改动无关，未放宽阈值或跳过。
+
+### 283.3 未验证与边界
+
+- 真实模型下的自动重试未实跑，仅行为测试与假 Agent 覆盖。
+- 非准入且无批准的旧任务包会停在 `plan_proposed`；是否提供人工准入补救入口未决。
+- `approve`、`grant-rounds`、`extend-budget` 端点仍可调用（兼容），但不再决定推进与验证。
+- 两条验证执行路径仍未收敛（[ADR 0012](../development/adr/0012-single-verification-path.md)）。

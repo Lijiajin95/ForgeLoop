@@ -70,13 +70,13 @@ afterEach(() => {
 })
 
 describe('requirement status view failure visibility', () => {
-  it('reports an empty failure detail list and the initial grant quota when no round is recorded', () => {
+  it('reports an empty failure detail list and an unlimited quota when no round is recorded', () => {
     const reqId = submitRequirement()
 
     const view = statusView(reqId)
 
     expect(view.failureRoundDetails).toEqual([])
-    expect(view.grantQuota).toEqual({ grants: 1, used: 0, remaining: 3 })
+    expect(view.grantQuota).toEqual({ grants: 1, used: 0, remaining: null })
     expect(runtime.repo.failureRounds(reqId)).toEqual([])
     expect(runtime.repo.grantCount(reqId)).toBe(1)
   })
@@ -100,12 +100,12 @@ describe('requirement status view failure visibility', () => {
       })
     }
     expect(view.failureRoundDetails).toEqual(runtime.repo.failureRounds(reqId))
-    expect(view.grantQuota).toEqual({ grants: 1, used: 2, remaining: 1 })
+    expect(view.grantQuota).toEqual({ grants: 1, used: 2, remaining: null })
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(2)
     expect(runtime.repo.grantCount(reqId)).toBe(1)
   })
 
-  it('reports remaining 0 and the full details after the granted quota is exhausted', () => {
+  it('keeps remaining unlimited and the full details after the granted quota is exceeded', () => {
     const reqId = submitRequirement()
     const granted = runtime.grant({ reqId, by: 'owner' })
     expect(granted.ok, granted.message).toBe(true)
@@ -117,7 +117,7 @@ describe('requirement status view failure visibility', () => {
     const view = statusView(reqId)
 
     expect(view.failureRoundDetails).toEqual(rounds)
-    expect(view.grantQuota).toEqual({ grants: 2, used: 6, remaining: 0 })
+    expect(view.grantQuota).toEqual({ grants: 2, used: 6, remaining: null })
     expect(view.failureRoundDetails).toEqual(runtime.repo.failureRounds(reqId))
     expect(runtime.repo.failureRounds(reqId)).toHaveLength(6)
     expect(runtime.repo.grantCount(reqId)).toBe(2)

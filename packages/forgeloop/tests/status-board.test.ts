@@ -403,29 +403,22 @@ describe('status board', () => {
     expect(issue?.detail).toContain('旧版本批准不能驱动新任务包')
   })
 
-  it('gates approval on the plan review and verification on the fixed candidate', () => {
+  it('no longer offers approval and judges verification on the fixed candidate', () => {
     const reqId = submit('req-verify')
     repository.recordTaskPlan(plan(reqId))
     repository.setStatus(reqId, 'plan_proposed')
 
     let item = board().requirements[0]!
-    expect(item.actions).toEqual(['plan', 'cancel'])
+    expect(item.actions).toEqual(['cancel'])
     expect(item.planReview).toBeNull()
-    expect(board().issues.find((issue) => issue.kind === 'approval')).toMatchObject({
-      severity: 'attention',
-      title: '任务包 v1 待实现前评审',
-    })
+    expect(item.actions).not.toContain('approve')
 
-    // 评审阻断时不能批准：只保留“重新生成任务包”，并给出阻断原因。
     seedPlanReview(reqId, 1, 'block')
-    expect(board().issues.find((issue) => issue.kind === 'approval')).toMatchObject({
-      severity: 'blocking',
-      title: '任务包 v1 实现前评审阻断',
-    })
-    expect(board().requirements[0]!.actions).toEqual(['plan', 'cancel'])
+    expect(board().requirements[0]!.actions).toEqual(['cancel'])
 
     seedPlanReview(reqId)
-    expect(board().requirements[0]!.actions).toEqual(['approve', 'cancel'])
+    expect(board().requirements[0]!.actions).toEqual(['cancel'])
+    expect(board().requirements[0]!.actions).not.toContain('approve')
 
     repository.recordPlanApproval({
       requirementId: reqId,
@@ -583,7 +576,7 @@ describe('status board', () => {
     expect(busy.actions).not.toContain('requeue')
   })
 
-  it('refuses requeue when the failure budget is exhausted', () => {
+  it('keeps requeue available after failure rounds even when a quota was configured', () => {
     const reqId = submit('req-requeue-budget')
     repository.recordTaskPlan(plan(reqId))
     repository.recordPlanApproval({
@@ -612,9 +605,8 @@ describe('status board', () => {
       })
     }
     const view = board().requirements.find((item) => item.reqId === reqId)!
-    expect(view.retry.allowed).toBe(false)
-    expect(view.retry.reason).toContain('额度已用尽')
-    expect(view.actions).not.toContain('requeue')
+    expect(view.retry.allowed).toBe(true)
+    expect(view.actions).toContain('requeue')
   })
 
   it('offers a plan action for a specified requirement with no task plan yet', () => {
@@ -821,13 +813,12 @@ describe('status board', () => {
     expect(blocked?.detail).toContain('不能认定已经停稳')
   })
 
-  it('exposes server-judged actions for approval, advance and stop without inventing acceptance', () => {
+  it('exposes server-judged actions for advance and stop without inventing acceptance', () => {
     const proposed = submit('req-proposed')
     repository.recordTaskPlan(plan(proposed))
     repository.setStatus(proposed, 'plan_proposed')
     seedPlanReview(proposed)
     expect(board().requirements.find((item) => item.reqId === proposed)?.actions).toEqual([
-      'approve',
       'cancel',
     ])
 
@@ -998,7 +989,7 @@ describe('status board', () => {
     expect(failedView.actions).toContain('deploy')
   })
 
-  it('offers regeneration for a stored plan that violates current rules and stops offering build/deploy once done', () => {
+  it('keeps a stored plan without inventing approval or regeneration actions', () => {
     const legacy = submit('req-board-legacy')
     repository.db.handle
       .prepare(
@@ -1043,7 +1034,7 @@ describe('status board', () => {
     repository.setStatus(legacy, 'plan_proposed')
     seedPlanReview(legacy)
     const legacyView = board().requirements.find((item) => item.reqId === legacy)!
-    expect(legacyView.actions).toContain('plan')
+    expect(legacyView.actions).not.toContain('plan')
     expect(legacyView.actions).not.toContain('approve')
   })
 
@@ -1183,20 +1174,20 @@ describe('project facts for the requirement Agent', () => {
 })
 
 describe('work budget board action', () => {
-  it('offers extension when the requirement is blocked by exhausted work hours', () => {
+  it('no longer offers extension after the work hours are used up', () => {
     const reqId = submit('req-hours')
     repository.setStatus(reqId, 'blocked', '执行工时已用尽；需显式延长或拆分任务')
     const requirement = board().requirements.find((item) => item.reqId === reqId)!
-    expect(requirement.actions).toContain('extend-budget')
+    expect(requirement.actions).not.toContain('extend-budget')
   })
 })
 
 describe('failure round board action', () => {
-  it('offers a grant when the failure quota is exhausted', () => {
+  it('no longer offers a grant after the failure quota is used up', () => {
     const reqId = submit('req-rounds')
     repository.setStatus(reqId, 'blocked', '失败轮次额度已用尽；需要追加授权')
     const requirement = board().requirements.find((item) => item.reqId === reqId)!
-    expect(requirement.actions).toContain('grant-rounds')
+    expect(requirement.actions).not.toContain('grant-rounds')
   })
 })
 

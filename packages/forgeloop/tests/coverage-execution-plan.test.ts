@@ -214,15 +214,15 @@ describe('execution plan failure paths', () => {
     expect(statuses.at(-1)?.[1]).toBe('blocked')
   })
 
-  it('records a generated plan and leaves it proposed when review blocks', async () => {
+  it('records a generated plan and keeps the review advisory', async () => {
     responses = [
       result(JSON.stringify(validPlan)),
       result(JSON.stringify(validPlan)),
       result(JSON.stringify(validPlan)),
     ]
     const outcome = await executionPlan().executeDevPlanning('req-1', new AbortController().signal)
-    expect(outcome.state).toBe('failed')
-    expect(outcome.detail).toContain('实现前评审阻断')
+    expect(outcome.state).toBe('done')
+    expect(outcome.detail).toContain('只记录，不再阻断')
     expect(plan?.tasks).toHaveLength(2)
     expect(statuses.at(-1)?.[1]).toBe('plan_proposed')
   })

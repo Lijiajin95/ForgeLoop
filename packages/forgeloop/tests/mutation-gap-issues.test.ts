@@ -94,7 +94,7 @@ function withDb(run: (store: IssueStore, db: Database) => void): void {
 describe('analysis vocabulary', () => {
   it('keeps prompt/retry/document/tool allowlist literals stable', () => {
     expect(ANALYSIS_PROMPT_VERSION).toBe('analysis-v8')
-    expect(MAX_AUTO_ANALYSIS_RETRIES).toBe(3)
+    expect(MAX_AUTO_ANALYSIS_RETRIES).toBe(20)
     expect(BUSINESS_CONTEXT_DOC).toBe('docs/product/business-context.md')
     expect(PRODUCT_TOOL_ALLOWLIST).toEqual([
       'forgeloop_read_library_entry',

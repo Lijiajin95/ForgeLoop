@@ -500,7 +500,7 @@ describe('advance pipeline mutation gaps', () => {
     expect(finished).toEqual([])
   })
 
-  it('blocks stale requirements and exhausted continuous budgets with recorded status', async () => {
+  it('blocks stale requirements with recorded status', async () => {
     const pipeline = makePipeline()
 
     analysis = { ...analysisOf(), requirementVersion: 2 } as never
@@ -511,16 +511,6 @@ describe('advance pipeline mutation gaps', () => {
     expect(statuses).toEqual([
       ['req-1', 'blocked', '需求说明缺失或已过期；需要产品 Agent 重新澄清'],
     ])
-
-    statuses = []
-    analysis = analysisOf()
-    budget = { limit: 10, consumedSeconds: 10 }
-    expect(await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)).toEqual({
-      state: 'failed',
-      detail: '执行工时已用尽',
-    })
-    expect(statuses).toEqual([['req-1', 'blocked', '执行工时已用尽；需要显式延长或拆分需求']])
-    expect(acquireCalls).toEqual([])
   })
 
   it('waits on a busy session and fails on an unavailable one', async () => {
@@ -661,7 +651,7 @@ describe('advance pipeline mutation gaps', () => {
     expect(finished).toHaveLength(1)
   })
 
-  it('creates an open issue and blocks when the verification attempt limit is reached', async () => {
+  it('creates an open issue and repairs past a configured verification attempt cap', async () => {
     config = configWith({ maxVerificationAttempts: 1 })
     const pipeline = makePipeline()
     verifyQueue = [
@@ -712,22 +702,11 @@ describe('advance pipeline mutation gaps', () => {
       stage: ISSUE_STAGE_VERIFICATION,
       verificationVerdict: 'block',
     })
-    expect(statuses).toEqual([
-      ['req-1', DEVELOPING, '研发 Agent 在同一会话与工作区实现并自验'],
-      ['req-1', VERIFYING, '测试 Agent 正在验证候选 v1'],
-      [
-        'req-1',
-        'blocked',
-        `测试未通过，已创建问题单 ${issue.issueId}（attempt 1）：命令失败；缺少证据；问题单已加入研发队列，将自动重新验证`,
-      ],
-    ])
-    expect(outcome).toEqual({
-      state: 'failed',
-      detail: `测试未通过：命令失败；缺少证据；问题单 ${issue.issueId}（attempt 1）已加入研发队列`,
-    })
-    expect(repairCalls).toEqual([])
-    expect(issueUpdates).toEqual([])
-    expect(issueResolves).toEqual([])
+    expect(statuses.at(-1)?.[1]).toBe('committed')
+    expect(outcome).toMatchObject({ state: 'done' })
+    expect(repairCalls).toHaveLength(1)
+    expect(issueUpdates).toHaveLength(1)
+    expect(issueResolves).toHaveLength(1)
     expect(finished).toHaveLength(1)
   })
 
@@ -806,7 +785,7 @@ describe('advance pipeline mutation gaps', () => {
     expect(finished).toHaveLength(1)
   })
 
-  it('blocks a business review when the failure quota is exhausted', async () => {
+  it('repairs a business review instead of stopping at the failure quota', async () => {
     const pipeline = makePipeline()
     remainingRounds = 0
     verifyQueue = [
@@ -820,14 +799,10 @@ describe('advance pipeline mutation gaps', () => {
 
     const outcome = await pipeline.executeContinuousAdvance('req-1', new AbortController().signal)
 
-    expect(outcome).toEqual({
-      state: 'failed',
-      detail: '测试未通过且失败额度已用尽：业务场景未通过',
-    })
-    expect(statuses.at(-1)).toEqual(['req-1', 'blocked', '测试未通过且失败额度已用尽：场景失败'])
+    expect(outcome).toMatchObject({ state: 'done' })
+    expect(statuses.at(-1)?.[1]).toBe('committed')
     expect(issueRecords).toEqual([])
-    expect(repairCalls).toEqual([])
-    expect(failureRounds).toEqual([])
+    expect(repairCalls).toHaveLength(1)
     expect(finished).toHaveLength(1)
   })
 
@@ -882,7 +857,7 @@ describe('advance pipeline mutation gaps', () => {
     expect(finished).toHaveLength(1)
   })
 
-  it('rejects an exhausted execution budget before dispatching tasks', async () => {
+  it('dispatches tasks even when the execution budget is exhausted', async () => {
     const pipeline = makePipeline()
     budget = { limit: 10, consumedSeconds: 10 }
 
@@ -892,14 +867,10 @@ describe('advance pipeline mutation gaps', () => {
       'request-1',
     )
 
-    expect(outcome).toEqual({
-      state: 'failed',
-      detail: '执行工时已用尽；需显式延长或拆分任务',
-    })
-    expect(statuses).toEqual([['req-1', 'blocked', '执行工时已用尽；需显式延长或拆分任务']])
+    expect(outcome).toMatchObject({ state: 'done' })
     expect(budgetEnsured).toEqual([['req-1', 1200]])
-    expect(deliverCalls).toEqual([])
-    expect(verificationCalls).toBe(0)
+    expect(deliverCalls).toHaveLength(2)
+    expect(verificationCalls).toBe(1)
   })
 
   it('turns a stop request into a blocked outcome before delivery', async () => {
@@ -1040,7 +1011,7 @@ describe('advance pipeline mutation gaps', () => {
       ok: false,
       reason: '修复回合没有产生可用改动',
     })
-    expect(repairSends).toBe(3)
+    expect(repairSends).toBe(22)
 
     repairSend = async () => {
       writeFileSync(join(root, 'fixed.txt'), 'fixed in repair\n')
@@ -1049,7 +1020,7 @@ describe('advance pipeline mutation gaps', () => {
     expect(await pipeline.repairCandidate(repairInput(new AbortController().signal, 2))).toEqual({
       ok: true,
     })
-    expect(repairSends).toBe(4)
+    expect(repairSends).toBe(23)
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' })).toBe('')
     expect(
       execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd: root, encoding: 'utf8' }).trim(),

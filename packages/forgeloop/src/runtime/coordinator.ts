@@ -282,6 +282,7 @@ export class Coordinator {
     try {
       if (this.autoAdvance) this.ensureAutoAdvanceRequests()
       this.runtime.analysisQueue.autoRetry()
+      this.runtime.autoRetryBlocked()
       this.runtime.intakeQueuedRequirement()
       let request = this.runtime.repo.claimNextRequest(this.owner, new Date().toISOString())
       while (request && !this.stopped) {

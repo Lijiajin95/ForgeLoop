@@ -207,7 +207,7 @@ afterEach(() => {
 })
 
 describe('advance pipeline branch boundaries', () => {
-  it('rejects missing, terminal, unadmitted, stale and over-budget requirements', async () => {
+  it('rejects missing, terminal, unadmitted and stale requirements', async () => {
     const pipeline = makePipeline()
     requirement = null
     expect(await pipeline['continuousInputs']('req-1')).toMatchObject({
@@ -242,23 +242,16 @@ describe('advance pipeline branch boundaries', () => {
 
     analysis = { ...analysis, requirementVersion: 1 } as never
     budget = { limit: 10, consumedSeconds: 10 }
-    expect(await pipeline['continuousInputs']('req-1')).toMatchObject({
-      ok: false,
-      outcome: { detail: '执行工时已用尽' },
-    })
+    expect(await pipeline['continuousInputs']('req-1')).toMatchObject({ ok: true })
 
     budget = { limit: 'unlimited', consumedSeconds: 100 }
     expect(await pipeline['continuousInputs']('req-1')).toMatchObject({ ok: true })
   })
 
-  it('stops before delivery and records a budget failure', async () => {
+  it('does not block on an exhausted budget', () => {
     const pipeline = makePipeline()
     budget = { limit: 1, consumedSeconds: 1 }
-    expect(pipeline['advanceBudgetGuard']('req-1', plan)).toEqual({
-      state: 'failed',
-      detail: '执行工时已用尽；需显式延长或拆分任务',
-    })
-    expect(statuses.at(-1)?.[1]).toBe('blocked')
+    expect(pipeline['advanceBudgetGuard']('req-1', plan)).toBeNull()
 
     budget = { limit: 'unlimited', consumedSeconds: 100 }
     expect(pipeline['advanceBudgetGuard']('req-1', plan)).toBeNull()
@@ -462,7 +455,7 @@ describe('advance pipeline branch boundaries', () => {
     expect(outcome).toEqual({ state: 'failed', detail: '受控提交未完成：not allowed' })
   })
 
-  it('stops after the configured verification attempts', async () => {
+  it('repairs past a configured verification attempt cap', async () => {
     config = resolveConfig({
       project: 'demo',
       projectPath: root,
@@ -472,6 +465,7 @@ describe('advance pipeline branch boundaries', () => {
       autonomy: { allowCodeCommit: false },
     })
     const pipeline = makePipeline()
+    let repairs = 0
     pipeline['verifyCandidate'] = () =>
       Promise.resolve({
         state: 'block',
@@ -480,6 +474,10 @@ describe('advance pipeline branch boundaries', () => {
         verification: { verdict: 'block' },
       })
     pipeline['recordVerificationIssue'] = () => ({ issueId: 'issue-1', attempt: 1 }) as never
+    pipeline['repairCandidate'] = () => {
+      repairs += 1
+      return Promise.resolve({ ok: false, reason: '修复回合没有产生可用改动' })
+    }
     const outcome = await pipeline['verifyContinuousCandidate'](
       continuousInput({
         reqId: 'req-1',
@@ -503,9 +501,10 @@ describe('advance pipeline branch boundaries', () => {
         signal: new AbortController().signal,
       }),
     )
+    expect(repairs).toBe(1)
     expect(outcome).toMatchObject({
       state: 'failed',
-      detail: expect.stringContaining('测试未通过'),
+      detail: expect.stringContaining('定向修复未完成'),
     })
     expect(statuses.at(-1)?.[1]).toBe('blocked')
   })
@@ -588,7 +587,7 @@ describe('advance pipeline branch boundaries', () => {
     })
   })
 
-  it('blocks a business review when the failure quota is exhausted', async () => {
+  it('repairs a business review block instead of stopping at the failure quota', async () => {
     const pipeline = makePipeline()
     remainingRounds = 0
     pipeline['verifyCandidate'] = () =>
@@ -598,6 +597,8 @@ describe('advance pipeline branch boundaries', () => {
         blocking: ['业务验收未过'],
         verification: { verdict: 'pass' },
       })
+    pipeline['repairCandidate'] = () =>
+      Promise.resolve({ ok: false, reason: '修复回合没有产生可用改动' })
     const outcome = await pipeline['verifyContinuousCandidate'](
       continuousInput({
         reqId: 'req-1',
@@ -623,7 +624,7 @@ describe('advance pipeline branch boundaries', () => {
     )
     expect(outcome).toMatchObject({
       state: 'failed',
-      detail: expect.stringContaining('失败额度已用尽'),
+      detail: expect.stringContaining('定向修复未完成'),
     })
   })
 

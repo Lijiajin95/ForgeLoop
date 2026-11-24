@@ -325,7 +325,7 @@ describe('auto advance requests', () => {
     expect(runtime.repo.requestsFor(queuedId)).toHaveLength(1)
   })
 
-  it('auto-requeues a failed requirement but not one blocked by quota', async () => {
+  it('auto-requeues blocked requirements whether or not a quota was configured', async () => {
     const coordinator = makeCoordinator(true)
 
     const failedId = submit()
@@ -356,7 +356,8 @@ describe('auto advance requests', () => {
     autoAdvanceScan(coordinator)
     expect(runtime.repo.requestsFor(failedId)).toHaveLength(1)
     expect(runtime.repo.requestsFor(failedId)[0]?.source).toBe('auto-advance')
-    expect(runtime.repo.requestsFor(exhaustedId)).toHaveLength(0)
+    expect(runtime.repo.requestsFor(exhaustedId)).toHaveLength(1)
+    expect(runtime.repo.requestsFor(exhaustedId)[0]?.source).toBe('auto-advance')
   })
 
   it('keeps the last error instead of crashing when a scan fails', async () => {

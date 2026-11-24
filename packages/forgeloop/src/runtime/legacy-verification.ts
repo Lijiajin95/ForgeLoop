@@ -201,6 +201,7 @@ export class LegacyVerification {
           detail: string
           blocking: string[]
           verification: VerificationRecord
+          repairRecommended?: boolean
         }
       }
   > {
@@ -242,6 +243,7 @@ export class LegacyVerification {
           detail,
           blocking: [businessRun.reason],
           verification,
+          repairRecommended: false,
         },
       }
     }
@@ -263,6 +265,7 @@ export class LegacyVerification {
           detail,
           blocking: [detail],
           verification,
+          repairRecommended: false,
         },
       }
     }

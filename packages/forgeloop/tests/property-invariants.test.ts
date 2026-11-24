@@ -55,8 +55,6 @@ describe('property invariants', () => {
         expect(input.activeRequest).toBe(false)
         expect(input.runningTasks).toBe(0)
         expect(input.awaitingInputTasks).toBe(0)
-        expect(input.remainingRounds).toBeGreaterThan(0)
-        expect(HARD_BLOCKS.some((text) => input.blockedReason.includes(text))).toBe(false)
       }),
       propertyOptions(propertyNumRuns()),
     )

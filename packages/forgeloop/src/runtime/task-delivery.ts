@@ -11,6 +11,7 @@ import {
 } from '../domain/counting.js'
 import { AGENT_VERIFY } from '../domain/agents.js'
 import { attemptAllowed } from '../domain/limits.js'
+import { MAX_AUTO_RETRIES } from '../domain/auto-retry.js'
 import type { TaskRunState } from '../domain/status.js'
 import {
   EXECUTING,
@@ -106,9 +107,9 @@ export class TaskDelivery {
     const ledger = new GrantLedger(
       this.deps.repo.grantCount(requirement.reqId),
       this.deps.repo.failureRounds(requirement.reqId),
-      this.deps.config.failureRoundsPerGrant,
+      -1,
     )
-    while (attemptAllowed(attempt + 1, this.deps.config.maxTaskAttempts)) {
+    while (attemptAllowed(attempt + 1, MAX_AUTO_RETRIES)) {
       attempt += 1
       if (signal.aborted) {
         return {
@@ -364,33 +365,22 @@ export class TaskDelivery {
     writeFileSync(reviewPath, `${JSON.stringify(verdict, null, 2)}\n`, 'utf8')
     if (verdict.verdict === 'block') {
       const summary = `独立审查阻断：${verdict.blocking.join('；')}`
-      const recorded = ledger.recordFailure({
+      ledger.recordFailure({
         roundId: roundIdFor(attempt),
         stage: FAILURE_IMPLEMENTATION_REVIEW,
         summary,
         occurredAt: this.deps.now(),
       })
-      if (recorded.recorded) {
-        this.deps.repo.recordFailureRound(requirement.reqId, {
-          roundId: roundIdFor(attempt),
-          stage: FAILURE_IMPLEMENTATION_REVIEW,
-          summary,
-          occurredAt: this.deps.now(),
-        })
-      }
+      this.deps.repo.recordFailureRound(requirement.reqId, {
+        roundId: roundIdFor(attempt),
+        stage: FAILURE_IMPLEMENTATION_REVIEW,
+        summary,
+        occurredAt: this.deps.now(),
+      })
       this.deps.recordRun(requirement.reqId, plan, task, {
         state: TASK_RUN_FAILED,
         reason: summary,
       })
-      if (!ledger.canRecordFailure) {
-        return {
-          result: {
-            state: 'awaiting_user',
-            reason: `独立审查阻断且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * ledger.roundsPerGrant}）；等待追加授权或停止`,
-            requirementStatus: 'blocked',
-          },
-        }
-      }
       feedback = `\n\n上一次独立审查阻断，必须修复：\n- ${verdict.blocking.join('\n- ')}`
       return { continue: true, feedback }
     }
@@ -471,33 +461,22 @@ export class TaskDelivery {
       }
     }
     if (test.exitCode !== 0) {
-      const recorded = ledger.recordFailure({
+      ledger.recordFailure({
         roundId: roundIdFor(attempt),
         stage: FAILURE_FORMAL_TEST,
         summary: `正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
         occurredAt: this.deps.now(),
       })
-      if (recorded.recorded) {
-        this.deps.repo.recordFailureRound(requirement.reqId, {
-          roundId: roundIdFor(attempt),
-          stage: FAILURE_FORMAL_TEST,
-          summary: `正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
-          occurredAt: this.deps.now(),
-        })
-      }
+      this.deps.repo.recordFailureRound(requirement.reqId, {
+        roundId: roundIdFor(attempt),
+        stage: FAILURE_FORMAL_TEST,
+        summary: `正式测试退出码 ${test.exitCode === null ? 'null' : test.exitCode}`,
+        occurredAt: this.deps.now(),
+      })
       this.deps.recordRun(requirement.reqId, plan, task, {
         state: TASK_RUN_FAILED,
         reason: `正式测试失败（退出码 ${test.exitCode}），日志 ${test.logPath}`,
       })
-      if (!ledger.canRecordFailure) {
-        return {
-          result: {
-            state: 'awaiting_user',
-            reason: `正式测试失败且失败轮次额度已用尽（${ledger.cumulativeFailures}/${ledger.grantCount * ledger.roundsPerGrant}）；等待追加授权或停止`,
-            requirementStatus: 'blocked',
-          },
-        }
-      }
       feedback = `\n\n上一次正式测试失败（退出码 ${test.exitCode}）。日志：${test.logPath}\n${test.output.slice(-4000)}`
       return { continue: true, feedback }
     }

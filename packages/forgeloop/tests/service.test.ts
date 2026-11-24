@@ -7,6 +7,7 @@ import { ForgeLoopRuntime, type AgentLike } from '../src/runtime/service.js'
 import { Coordinator } from '../src/runtime/coordinator.js'
 import { resolveConfig } from '../src/config.js'
 import { sha256OfText } from '../src/domain/delivery.js'
+import { MAX_AUTO_RETRIES } from '../src/domain/auto-retry.js'
 import type { AgentRunRequest, AgentRunResult } from '../src/runtime/agent-runner.js'
 import {
   structuredSpecOf,
@@ -462,7 +463,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     expect(staleApproval.code).toBe('stale_requirement')
   })
 
-  it('records a failed formal test as a failure round and stops at the quota', async () => {
+  it('records a failed formal test as a failure round and stops after the automatic attempts', async () => {
     const submitted = runtime.submit({ text: '测试失败', by: 'owner', source: 'test' })
     const reqId = (submitted.data as { reqId: string }).reqId
     await runQueued('analyze', reqId)
@@ -484,7 +485,7 @@ describe('requirement pipeline end to end with a deterministic agent', () => {
     })
     const outcome = await runQueued('advance', reqId)
     expect(outcome.state).toBe('done')
-    expect(runtime.repo.failureRounds(reqId).length).toBe(2)
+    expect(runtime.repo.failureRounds(reqId).length).toBe(MAX_AUTO_RETRIES)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
     expect(runtime.repo.taskArtifacts(reqId, 1)).toHaveLength(0)
   })
@@ -767,10 +768,10 @@ describe('task retry', () => {
 
     const failed = await runQueued('advance', reqId)
     expect(failed.state).toBe('done')
-    expect(runtime.repo.failureRounds(reqId)).toHaveLength(2)
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(MAX_AUTO_RETRIES)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
     expect(runtime.repo.taskArtifacts(reqId, 1)).toHaveLength(0)
-    expect(prompts).toHaveLength(2)
+    expect(prompts).toHaveLength(MAX_AUTO_RETRIES)
 
     const failedDetail = runtime.taskDetail(reqId, 'a', 1)
     const failedValue = failedDetail.data as {
@@ -781,7 +782,7 @@ describe('task retry', () => {
     }
     expect(failedValue.run.state).toBe('failed')
     expect(failedValue.run.reason).toContain('正式测试失败')
-    expect(failedValue.failureRounds).toHaveLength(2)
+    expect(failedValue.failureRounds).toHaveLength(MAX_AUTO_RETRIES)
     expect(failedValue.advice.actions.join('\n')).toContain('contracts/architecture.json')
     expect(failedValue.retry.allowed).toBe(true)
 
@@ -821,12 +822,12 @@ describe('task retry', () => {
       'b',
     ])
     // 重试不清零既有失败轮次与证据。
-    expect(runtime.repo.failureRounds(reqId)).toHaveLength(2)
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(MAX_AUTO_RETRIES)
     // 新一次实现拿到上一次失败原因与正式测试日志尾部，而不是从零开始。
-    expect(prompts[2]).toContain('上一次任务运行')
-    expect(prompts[2]).toContain('正式测试失败（退出码 1）')
-    expect(prompts[2]).toContain('上一次正式测试日志尾部')
-    expect(prompts[2]).toContain('retry.ts')
+    expect(prompts[MAX_AUTO_RETRIES]).toContain('上一次任务运行')
+    expect(prompts[MAX_AUTO_RETRIES]).toContain('正式测试失败（退出码 1）')
+    expect(prompts[MAX_AUTO_RETRIES]).toContain('上一次正式测试日志尾部')
+    expect(prompts[MAX_AUTO_RETRIES]).toContain('retry.ts')
 
     const requirementDetail = runtime.requirementDetail(reqId)
     expect(requirementDetail.ok, requirementDetail.message).toBe(true)
@@ -941,8 +942,8 @@ describe('task retry', () => {
     })
     const outcome = await runQueued('advance', reqId)
     expect(outcome.state).toBe('done')
-    // 1 条旧请求的失败 + 新请求的 2 次尝试；attempt 序号相同也不能被当成重复轮次。
-    expect(runtime.repo.failureRounds(reqId)).toHaveLength(3)
+    // 1 条旧请求的失败 + 新请求的自动尝试；attempt 序号相同也不能被当成重复轮次。
+    expect(runtime.repo.failureRounds(reqId)).toHaveLength(MAX_AUTO_RETRIES + 1)
     expect(
       runtime.repo.failureRounds(reqId).filter((round) => round.roundId === 'a-a1'),
     ).toHaveLength(1)
@@ -999,7 +1000,7 @@ describe('task retry', () => {
       by: 'owner',
       source: 'test-retry',
     })
-    expect(exhausted.code).toBe('grant_required')
+    expect(exhausted.ok, exhausted.message).toBe(true)
     // 普通“推进”也不能绕过同一额度。
     const advanceAfterExhaustion = runtime.requestOperation({
       reqId: exhaustedId,
@@ -1007,7 +1008,7 @@ describe('task retry', () => {
       by: 'owner',
       source: 'test-advance',
     })
-    expect(advanceAfterExhaustion.code).toBe('grant_required')
+    expect(advanceAfterExhaustion.ok, advanceAfterExhaustion.message).toBe(true)
 
     const deliveredId = 'req-retry-delivered'
     seedApprovedPlan(deliveredId)
@@ -1161,7 +1162,7 @@ describe('execution scope, plan freeze and repair loop', () => {
     return reqId
   }
 
-  it('counts independent review blocks as failure rounds and stops at the quota', async () => {
+  it('counts independent review blocks as failure rounds and stops after the automatic attempts', async () => {
     const base = fakeRunner()
     const blocking: AgentLike = {
       async run(request) {
@@ -1184,11 +1185,11 @@ describe('execution scope, plan freeze and repair loop', () => {
     const reqId = await prepared('审查阻断计轮')
     const outcome = await runQueued('advance', reqId)
     expect(outcome.state).toBe('done')
-    expect(outcome.detail).toContain('已尝试 2 次')
+    expect(outcome.detail).toContain('已尝试 20 次')
     const rounds = runtime.repo
       .failureRounds(reqId)
       .filter((round) => round.stage === 'implementation_review')
-    expect(rounds).toHaveLength(2)
+    expect(rounds).toHaveLength(MAX_AUTO_RETRIES)
     expect(runtime.repo.getRequirement(reqId)?.status).toBe('blocked')
   })
 

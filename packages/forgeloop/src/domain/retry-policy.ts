@@ -17,15 +17,6 @@ export interface RetryDecision {
 
 const RETRYABLE_STATUSES = new Set(['approved', 'executing', 'blocked'])
 
-const HARD_BLOCK_PATTERNS: readonly RegExp[] = [/额度已用尽/, /工时已用尽/, /需要追加授权/, /终态/]
-
-function hardBlockedBy(facts: RetryFacts): string | null {
-  for (const pattern of HARD_BLOCK_PATTERNS) {
-    if (pattern.test(facts.blockedReason)) return facts.blockedReason
-  }
-  return null
-}
-
 export function retryDecision(facts: RetryFacts): RetryDecision {
   if (facts.status === 'accepted' || facts.status === 'rejected' || facts.status === 'cancelled') {
     return { allowed: false, reason: `需求已处于终态 ${facts.status}` }
@@ -42,13 +33,6 @@ export function retryDecision(facts: RetryFacts): RetryDecision {
   if (facts.runningTasks > 0) return { allowed: false, reason: '仍有任务在运行' }
   if (facts.awaitingInputTasks > 0) {
     return { allowed: false, reason: '仍有任务在等待人工回答' }
-  }
-  if (facts.remainingRounds === 0) {
-    return { allowed: false, reason: '失败轮次额度已用尽；需要追加授权' }
-  }
-  const blocked = hardBlockedBy(facts)
-  if (blocked !== null) {
-    return { allowed: false, reason: `当前阻塞需要人工处置：${blocked}` }
   }
   return { allowed: true, reason: '' }
 }
