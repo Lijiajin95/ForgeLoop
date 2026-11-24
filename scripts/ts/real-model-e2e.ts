@@ -295,6 +295,12 @@ interface RequirementStageSnapshot {
     model: string
     createdAt: string
   } | null
+  readonly attempt: {
+    attempt: number
+    outcome: string
+    detail: string
+    promptVersion: string
+  } | null
   readonly spec: Record<string, unknown> | null
 }
 
@@ -345,11 +351,22 @@ async function pollRequirementStage(
             )
           : undefined
         const spec = specRow ? (JSON.parse(specRow.specJson) as Record<string, unknown>) : null
+        const attempt = queryOne<{
+          attempt: number
+          outcome: string
+          detail: string
+          promptVersion: string
+        }>(
+          db,
+          'SELECT attempt, outcome, detail, prompt_version AS promptVersion FROM requirement_analysis_attempts WHERE req_id = ? ORDER BY attempt DESC LIMIT 1',
+          [requirement.req_id],
+        )
         const line = JSON.stringify({
           status: requirement.status,
           admission: admission?.decision ?? null,
           analysis: analysis?.analysisVersion ?? null,
           promptVersion: analysis?.promptVersion ?? null,
+          attempt: attempt?.outcome ?? null,
           points: Array.isArray(spec?.business_points) ? spec.business_points.length : 0,
         })
         if (line !== lastLine) {
@@ -359,8 +376,13 @@ async function pollRequirementStage(
         if (requirement.status === 'cancelled' || requirement.status === 'rejected') {
           throw new Error(`需求停在 ${requirement.status}：${line}`)
         }
+        if (requirement.status === 'analysis_failed') {
+          throw new Error(
+            `分析失败（attempt=${attempt?.attempt ?? 0}，${attempt?.outcome ?? 'unknown'}）：${(attempt?.detail ?? '').slice(0, 1200)}`,
+          )
+        }
         if (admission && analysis) {
-          return { requirement, admission, analysis, spec }
+          return { requirement, admission, analysis, attempt, spec }
         }
       }
     } finally {
@@ -843,6 +865,7 @@ async function main(): Promise<void> {
             requirement: stage.requirement,
             admission: stage.admission,
             analysis: stage.analysis,
+            attempt: stage.attempt,
             counts,
             spec: stage.spec,
           },
