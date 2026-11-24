@@ -328,6 +328,10 @@ async function verify(target: VerificationTarget): Promise<number> {
         `${JSON.stringify({ target, run, network, identity, exitCode }, null, 2)}\n`,
       )
       if (launched && docker) docker.sync(['cp', `${run}:${REPORTS}/.`, report])
+      if (usesModel && docker) {
+        const proxyLog = docker.sync(['logs', proxy], {}, true)
+        if (proxyLog) writeFileSync(join(report, 'model-proxy.log'), proxyLog)
+      }
       console.log(`[docker-verify] 验收证据 ${report}`)
     } finally {
       docker?.sync(['rm', '--force', run], {}, true)

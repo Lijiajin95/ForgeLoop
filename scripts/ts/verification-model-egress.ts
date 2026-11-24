@@ -8,6 +8,18 @@ export function modelHostFor(
   return hosts.find((host) => authority?.toLowerCase() === `${host}:443`)
 }
 
+export function egressLine(
+  verdict: 'allow' | 'reject',
+  target: string | undefined,
+  reason: 'host' | 'auth' | '',
+  authPresent: boolean,
+): string {
+  const auth = authPresent ? 'present' : 'absent'
+  return reason
+    ? `[egress] ${verdict} target=${target ?? ''} reason=${reason} auth=${auth}`
+    : `[egress] ${verdict} target=${target ?? ''} auth=${auth}`
+}
+
 function start(): void {
   const hosts = (process.env.FORGELOOP_MODEL_HOSTS ?? '').split(',').filter(Boolean)
   const password = process.env.FORGELOOP_MODEL_PROXY_PASSWORD
@@ -21,10 +33,14 @@ function start(): void {
   })
   server.on('connect', (request, client, head) => {
     const host = modelHostFor(request.url, hosts)
+    const authPresent = request.headers['proxy-authorization'] !== undefined
     if (!host || request.headers['proxy-authorization'] !== authorization) {
+      const reason = host ? 'auth' : 'host'
+      process.stdout.write(`${egressLine('reject', request.url, reason, authPresent)}\n`)
       client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       return
     }
+    process.stdout.write(`${egressLine('allow', request.url, '', authPresent)}\n`)
     const upstream = connect({ host, port: 443 })
     const deadline = setTimeout(() => upstream.destroy(), 30_000)
     upstream.once('close', () => {
