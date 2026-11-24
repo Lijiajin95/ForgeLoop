@@ -15,11 +15,12 @@ import {
   TASK_RUN_RUNNING,
 } from '../domain/status.js'
 import { attemptAllowed } from '../domain/limits.js'
+import { classifyFailure } from '../domain/failure-classification.js'
 import { sha256OfText } from '../domain/delivery.js'
 import { errorMessage } from '../domain/errors.js'
 import { outsideActiveFiles, outsideActiveSource, unknownPackages } from '../domain/language.js'
 import type { Repository } from '../records/repository.js'
-import type { AgentSession } from './agent-runner.js'
+import type { AgentRunResult, AgentSession, AgentTurnRequest } from './agent-runner.js'
 import { devPlanningPrompt, devPrompt } from './prompts.js'
 import { summarizeActivity } from './service-helpers.js'
 import {
@@ -40,6 +41,13 @@ import {
 
 function needsNoChangeRetry(status: { code: number; stdout: string }): boolean {
   return status.code !== 0 || status.stdout.trim() === ''
+}
+
+const MAX_TRANSIENT_RETRIES = 2
+const TRANSIENT_RETRY_DELAY_MS = 1000
+
+async function defaultSleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function turnTimeoutSeconds(lower: number, cap: number): number {
@@ -68,6 +76,8 @@ export interface ExecutionDevDeps {
     label: string,
     suffix: string,
   ) => Promise<{ ok: boolean; detail: string }>
+  /** 瞬态失败（网络/限流/超时）自动重试前的等待；测试可注入零等待。 */
+  sleep?: (ms: number) => Promise<void>
 }
 
 type DevelopTaskResult = {
@@ -154,7 +164,7 @@ export class ExecutionDev {
     let feedback = ''
     let lastError = ''
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const result = await input.session.send({
+      const result = await this.sendDevTurn(input, {
         prompt:
           devPlanningPrompt(input.requirement, input.analysis, {
             tools: 'read',
@@ -542,7 +552,7 @@ export class ExecutionDev {
         state: TASK_RUN_RUNNING,
         reason: '研发 Agent 工作中',
       })
-      const result = await input.session.send({
+      const result = await this.sendDevTurn(input, {
         prompt:
           devPrompt({
             requirement: input.requirement,
@@ -552,7 +562,6 @@ export class ExecutionDev {
           }) + feedback,
         timeoutMs: turnTimeoutMs,
         transcriptPath: join(attemptDir, 'dev.jsonl'),
-        signal: input.signal,
         onActivity: (events: readonly Record<string, unknown>[]) => {
           this.deps.repo.heartbeatTaskRun({
             requirementId: input.reqId,
@@ -593,7 +602,7 @@ export class ExecutionDev {
         plan: input.plan,
         task: input.task,
       })
-      if (earlySelf.blocked?.clarification) {
+      if (earlySelf.blocked) {
         this.deps.recordRun(input.reqId, input.plan, input.task, {
           state: TASK_RUN_BLOCKED,
           reason: earlySelf.blocked.reason,
@@ -620,6 +629,21 @@ export class ExecutionDev {
       reason: reason,
     })
     return { state: 'blocked', reason }
+  }
+
+  private async sendDevTurn(
+    input: { session: AgentSession; signal: AbortSignal },
+    turn: AgentTurnRequest,
+  ): Promise<AgentRunResult> {
+    let transientRetries = 0
+    for (;;) {
+      const result = await input.session.send({ ...turn, signal: input.signal })
+      if (result.status !== 'error') return result
+      if (transientRetries >= MAX_TRANSIENT_RETRIES) return result
+      if (classifyFailure(result.reason) !== 'transient') return result
+      transientRetries += 1
+      await (this.deps.sleep ?? defaultSleep)(transientRetries * TRANSIENT_RETRY_DELAY_MS)
+    }
   }
 
   private async completeTaskAttempt(context: {

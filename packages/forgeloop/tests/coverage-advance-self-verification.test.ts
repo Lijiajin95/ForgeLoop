@@ -84,6 +84,7 @@ let issueUpdates: Array<[string, string, string]>
 let issueResolves: Array<[string, string]>
 let latestOpenIssue: RequirementIssue | null
 let versionAppends: Array<Record<string, unknown>>
+let devClarifications: Array<Record<string, unknown>>
 let commitRecords: Array<Record<string, unknown>>
 let codeCandidates: CandidateFile[]
 let codeCandidateRecords: Array<Record<string, unknown>>
@@ -288,6 +289,9 @@ function makePipeline(
     appendVersion: (input: Record<string, unknown>) => {
       versionAppends.push(input)
     },
+    recordDevClarification: (input: Record<string, unknown>) => {
+      devClarifications.push(input)
+    },
     codeCandidates: () => codeCandidates,
     recordCodeCandidate: (record: Record<string, unknown>) => {
       codeCandidateRecords.push(record)
@@ -476,6 +480,7 @@ beforeEach(() => {
   issueResolves = []
   latestOpenIssue = null
   versionAppends = []
+  devClarifications = []
   commitRecords = []
   codeCandidates = []
   codeCandidateRecords = []
@@ -632,6 +637,15 @@ describe('advance pipeline self verification and dev clarification', () => {
       },
     ])
     expect(finalizeCalls).toEqual([])
+    expect(devClarifications).toEqual([
+      expect.objectContaining({
+        reqId: 'req-1',
+        requirementVersion: 2,
+        question: '选 A 还是 B？',
+        context: '已核对现有配置',
+        now: NOW,
+      }),
+    ])
     expect(verifyInputs).toEqual([])
     expect(closed).toEqual(['verify-1'])
     expect(finished[0]?.outcome).toBe(

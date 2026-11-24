@@ -1233,6 +1233,51 @@ export class Repository extends DevSessionStore {
     return result.changes > 0
   }
 
+  recordDevClarification(input: {
+    reqId: string
+    requirementVersion: number
+    question: string
+    context: string
+    now: string
+  }): void {
+    const next = this.devClarificationCount(input.reqId) + 1
+    this.db
+      .prepare(
+        `INSERT INTO requirement_dev_clarifications
+         (req_id, seq, requirement_version, question, context, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(input.reqId, next, input.requirementVersion, input.question, input.context, input.now)
+  }
+
+  devClarifications(reqId: string): Array<{
+    seq: number
+    requirementVersion: number
+    question: string
+    context: string
+    createdAt: string
+  }> {
+    return this.db
+      .prepare(
+        `SELECT seq, requirement_version, question, context, created_at
+         FROM requirement_dev_clarifications WHERE req_id = ? ORDER BY seq`,
+      )
+      .all(reqId)
+      .map((row) => ({
+        seq: num(row, 'seq'),
+        requirementVersion: num(row, 'requirement_version'),
+        question: text(row, 'question'),
+        context: text(row, 'context'),
+        createdAt: text(row, 'created_at'),
+      }))
+  }
+
+  devClarificationCount(reqId: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS count FROM requirement_dev_clarifications WHERE req_id = ?')
+      .get(reqId)
+    return row ? num(row, 'count') : 0
+  }
   grantCount(reqId: string): number {
     const row = this.db
       .prepare('SELECT COUNT(*) AS count FROM requirement_grants WHERE req_id = ?')

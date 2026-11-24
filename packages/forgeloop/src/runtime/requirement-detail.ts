@@ -18,6 +18,9 @@ export interface RequirementDetailExtras {
   readonly analysisActivity: readonly AnalysisAttemptView[]
   /** 验证阶段：按候选与尝试排列的验证记录，含结论、失败分类与阻塞原因。 */
   readonly verificationActivity: readonly VerificationAttemptView[]
+  /** 研发阶段每次请求产品澄清的记录，含对应的需求版本。 */
+  readonly devClarifications: ReturnType<Repository['devClarifications']>
+  readonly devClarificationCount: number
   /** 当前分析版本仍缺的需求阶段材料；只报告，不改变准入结论。 */
   readonly stageGaps: readonly StageGap[]
 }
@@ -93,6 +96,8 @@ export function requirementDetailExtras(
       sessionId: attempt.sessionId,
       verifiedAt: attempt.verifiedAt,
     })),
+    devClarifications: repository.devClarifications(reqId),
+    devClarificationCount: repository.devClarificationCount(reqId),
     stageGaps: latest ? requirementStageGaps(analysisSpecOf(latest)) : [],
   }
 }

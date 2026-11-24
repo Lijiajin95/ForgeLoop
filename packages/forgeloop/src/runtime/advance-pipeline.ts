@@ -818,6 +818,13 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       source: `dev-clarification:${input.reqId}`,
       now: this.deps.now(),
     })
+    this.deps.repo.recordDevClarification({
+      reqId: input.reqId,
+      requirementVersion: input.requirement.versions.length + 1,
+      question: input.clarification.question,
+      context: input.clarification.context,
+      now: this.deps.now(),
+    })
     this.deps.repo.setStatus(
       input.reqId,
       'awaiting_clarification',

@@ -418,6 +418,15 @@ CREATE TABLE IF NOT EXISTS requirement_failure_rounds (
     occurred_at TEXT NOT NULL,
     PRIMARY KEY (req_id, round_id)
 );
+CREATE TABLE IF NOT EXISTS requirement_dev_clarifications (
+    req_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    requirement_version INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    context TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, seq)
+);
 CREATE TABLE IF NOT EXISTS requirement_grants (
     req_id TEXT NOT NULL,
     grant_index INTEGER NOT NULL,
