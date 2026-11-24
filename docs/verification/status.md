@@ -10278,3 +10278,24 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 - **红绿灯命令真实执行未实施**：红灯要求在修复前失败，而当前回合结束时工作副本已包含修复；
   要真实执行需在基线 snapshotCommit 的隔离副本上重跑，属独立设计与实现。
 - 瞬态重试目前只覆盖研发规划与实现回合；协调器请求级失败（如宿主重启、测试工具异常）尚未接入自动重试。
+
+## 278. Windows 命令解析接入与自动推进前提（2026-11-24）
+
+### 278.1 已交付
+
+- `command-launch.ts` 此前无调用方。现在 `prepareCommand` 返回 `{ argv, windowsVerbatimArguments }`，
+  `.cmd/.bat` 走 `cmd.exe /d /s /c` 与 `""file" "arg""` 外层加引号；Node 默认会对参数再转义引号，
+  不配合 `windowsVerbatimArguments` 时 cmd 收到字面反斜杠加引号而失败。
+- 接入正式测试、工作区命令、部署工具、运维检查与 tar 解包；新增真实子进程集成测试
+  （`npm --version` 经正式测试入口与工作区命令入口都要退出 0）。
+- 提交 `b07a4bf`；tsc、Prettier、`make check-static`、契约与预算通过；
+  `command-launch`、`command-launch-integration`、`formal-test`、`workspace`、`ops` 共 37 项通过。
+
+### 278.2 自动推进前提核查
+
+- 当前源码与已安装的 `forgeloop-dsh@0.0.2` 的 `lib/runtime/workspace.js` 都使用异步 `spawn`，
+  请求路径已没有 `execFileSync/spawnSync`；剩余同步调用只在独立 CLI `cli/pack.ts` 与
+  `verification-agent.ts` 的生成脚本文本里，不阻塞宿主事件循环。
+- 结论：`autoAdvance: false` 的注释所述同步子进程根因已不在当前构建中；但恢复自动推进前需要
+  把 `b07a4bf` 的构建装入 live profile，否则研发/测试仍会因 `spawn npm ENOENT` 失败。
+- 未执行：插件构建与安装、profile 配置改为 `autoAdvance: true`、宿主重启；这些是部署动作，等待所有者授权。
