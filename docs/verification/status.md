@@ -10251,3 +10251,30 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 - 澄清答复需要交互宿主内的真实 Agent 重新分析，本批未验证；因此准入、任务包与后续阶段未覆盖。
 - 分析记录的 `model` 字段为空，报告无法据此证明具体模型；模型身份来自启动参数与补丁文件。
 - 未验证 macOS/Linux 宿主、并行隔离、部署场景与外部候选包；未推送远端。
+
+## 277. 研发阶段自主性：澄清计数、自验前置与瞬态重试（2026-11-24）
+
+来源：审查研发阶段人工介入点后，所有者要求取消额度/授权等人为闸门并收窄可自动化的中断。
+本批先交付三项可独立验证的改动，额度闸门与红绿命令真实执行未实施。
+
+### 277.1 已交付
+
+- 研发澄清统计：新增 equirement_dev_clarifications 表（req_id、seq、requirement_version、question、context、created_at）；
+  equestDevClarification 在追加需求版本后记录一条；equirement-detail 返回 devClarifications 与 devClarificationCount。
+- 自验前置：研发回合返回后先校验自验报告充分性，不足立即 locked，不再先跑正式测试、提交工作副本现场。
+- 瞬态自动重试：新增 domain/failure-classification.ts。超时、连接重置、限流、5xx、etch failed 等归为 transient，
+  规划与实现回合自动重试最多 2 次并退避，不消耗任务尝试次数；spawn ENOENT、额度不足、校验失败等仍按原逻辑阻塞。
+
+### 277.2 验证
+
+- 	sc、ESLint、Prettier、make check-static、架构契约、token/断言/可靠性登记通过。
+- 	ests/dev-autonomy.test.ts 4 项（澄清计数、前置校验、失败分类、瞬态重试）与
+  coverage-advance-self-verification、coverage-execution-dev、dev-sessions、oard-channel 通过。
+
+### 277.3 未完成与原因
+
+- **取消授权/额度限制未实施**：默认配置已经是无限（ailureRoundsPerGrant、maxTaskAttempts、maxVerificationAttempts\n  均为 -1，本机 profile 未设置），真正取消是指忽略显式配置的上限；这会改变产品规则 §7 的失败/工时语义，
+  并影响 8 个测试文件、约 50 处断言（工时 14 处、额度 23 处、追加授权 9 处等），需单独一批迁移与产品文档更新。
+- **红绿灯命令真实执行未实施**：红灯要求在修复前失败，而当前回合结束时工作副本已包含修复；
+  要真实执行需在基线 snapshotCommit 的隔离副本上重跑，属独立设计与实现。
+- 瞬态重试目前只覆盖研发规划与实现回合；协调器请求级失败（如宿主重启、测试工具异常）尚未接入自动重试。
