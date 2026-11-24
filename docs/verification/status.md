@@ -10190,3 +10190,64 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
   系统准入仍绑定需求版本，版本变化后判定为 `stale`。
 - 测试：`authorization.test.ts` 覆盖两来源、版本过期、准入拒绝与缺失；看板新增「准入需求显示推进」
   「已授权不显示批准」「人工批准标签保持」三例；`retry-policy` 与性质测试同步字段改名。
+
+## 276. 模型场景容器验证：出口网络修复与需求阶段实跑（2026-11-24）
+
+本批修复真实模型场景在 Windows Docker 下的两个确定性缺陷，并让需求阶段可以在容器里稳定复跑。
+代码改动在多个 worktree 完成，逐项快进合并；本记录在主工作树提交。未推送远端。
+
+### 273.1 出口网络缺陷与修复
+
+- `docker-verify` 的模型代理就绪探针经 `cmd.exe` 启动，探针参数里的 `r=>{` 被当作重定向，
+  JS 被截成 `r====403`，20 次重试后报“测试模型代理未就绪”。改为 `http.get` + 函数表达式，
+  参数不含 `> < & | ^`；探针与参数构造抽到 `scripts/ts/verification-model-probe.ts`，
+  新增 2 项测试锁定参数形态。提交 `ac176da`。
+- 放行名单只有 `token-plan.cn-beijing.maas.aliyuncs.com`，而容器里 DSH 0.2.1-rc.5 的
+  Qwen Token Plan 实际请求 `token-plan.maas.qianwenaiapi.com:443`，代理对每个 CONNECT 返回 403。
+  新增 `QWEN_TOKEN_PLAN_CN_HOSTS` 同时登记两个域名，`verificationSettings` 与出口代理的
+  `approved` 集合共用该常量；新增“Qwen 凭据注册两个域名”测试。提交 `3cf8ddf`。
+- 代理对每次 CONNECT 打印 `allow`/`reject`、目标、原因（host/auth）与是否携带凭据，不含凭据本身；
+  `docker-verify` 把代理日志写入证据目录 `model-proxy.log`。正是该日志定位到上面的域名不匹配。
+  提交 `ae8e1f1`。
+
+### 273.2 宿主生命周期与验收范围
+
+- 一次性 headless 宿主提交需求后立即退出，会向刚启动的分析回合发停止请求，需求停在
+  `analysis_failed`；容器里的 web 宿主走工作区模式，不接管单项目实例。
+- `ForgeLoopRuntime` 增加 `coordinatorOwner`：`Coordinator.start()` 按单消费者锁结果设置，
+  非持有者只保留排队、不启动 Agent 回合，避免短命宿主把工作变成“已启动又取消”。提交 `e41e445`，
+  新增 2 项测试（持有锁仍启动、锁被占用只入队）。
+- `real-model-e2e` 新增 `FORGELOOP_REAL_MODEL_SCOPE=requirement`：提交后只等结构化分析，
+  校验 `analysis-v6` 与至少一个业务要点，把需求、分析、尝试与 spec 计数写入
+  `reports/real-model-requirement.json`；默认 `delivery` 的完整闭环断言不变。提交 `8fdccdc`。
+- requirement 范围下提示模型在提交后执行 `sleep 480`（`timeoutMs` 600000）保持宿主存活到分析完成；
+  失败时输出最近一次尝试的原因；web/headless 输出与 `host.lock` 记录一并进证据。提交 `343dac4`、
+  `37c7854`、`ce5ddf7`、`3b187fc`。
+- 澄清答复会在答复进程内触发重新分析，需要真实 Agent，容器脚本无法完成；脚本内“所有者答复”路径
+  已移除（`3cc6006` → `1635dee`）。requirement 范围以“分析已写入”为通过条件，准入与待澄清
+  数量只记录、不判失败。
+
+### 273.3 实跑结果
+
+真实模型为 `qwen-token-plan-cn` / `deepseek-v4.1-flash-1017`，凭据取自本机 DSH 的
+`QWEN_TOKEN_PLAN_CN_API_KEY`，只通过 `FORGELOOP_TEST_QWEN_TOKEN_PLAN_CN_API_KEY` 注入容器；
+模型补丁文件留在本地 `.cache/qwen-model.patch.yml`（不入库）。
+
+| 运行 | 退出码 | 源快照 | 镜像 | 结果 |
+| --- | --- | --- | --- | --- |
+| `forgeloop-verify-6d32a76a…` | 0 | `8631d494…` | `f771c85d…` | 需求 `req-20261124053438-b837ee`，analysis-v6，2 个业务要点、2 条功能地图、4 个样例（2 个反例） |
+| `forgeloop-verify-ab4bfea9…` | 0 | `c97e0a96…` | `496b197e…` | 需求 `req-20261124054758-1e6e4c`，analysis-v6，2 个业务要点、5 条验收、2 条功能地图、2 个样例（1 个反例） |
+
+两次的 `container.json` 均为 `network: <run>`（内部网络 + 出口代理），代理日志只出现
+`allow target=token-plan.maas.qianwenaiapi.com:443 auth=present`。模型两次都给出
+`awaiting_clarification`，准入未发生；报告如实记录 `admission: 未发生` 与 `待澄清 0`。
+证据导出到 `reports/docker-verification/<run>/`（未入库），含 `real-model-requirement.json`、
+`real-model-headless.log`、`real-model-web.log`、`model-proxy.log`。
+
+### 273.4 未验证与边界
+
+- 容器内未跑通“需求 → 研发 → 验证 → 提交”完整模型闭环：headless 宿主缺少 `agentPresets.mount`，
+  早期运行在研发交接处被判阻塞；web 宿主在容器里走工作区模式，与单项目实例不是同一现场。
+- 澄清答复需要交互宿主内的真实 Agent 重新分析，本批未验证；因此准入、任务包与后续阶段未覆盖。
+- 分析记录的 `model` 字段为空，报告无法据此证明具体模型；模型身份来自启动参数与补丁文件。
+- 未验证 macOS/Linux 宿主、并行隔离、部署场景与外部候选包；未推送远端。
