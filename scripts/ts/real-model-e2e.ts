@@ -13,10 +13,18 @@
  * 需要启动环境提供对应密钥；脚本不改动生产记录与正式 profile。
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { ForgeLoopRuntime } from '../../packages/forgeloop/lib/runtime/service.js'
 import { resolveConfig } from '../../packages/forgeloop/lib/config.js'
@@ -798,6 +806,7 @@ async function main(): Promise<void> {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    captureHostLog(child, join(ROOT, 'reports', 'real-model-web.log'))
     await waitForToken(child, 90_000)
 
     const startedAt = new Date().toISOString()
@@ -814,6 +823,11 @@ async function main(): Promise<void> {
       timeout: HEADLESS_TIMEOUT_MS,
       maxBuffer: 32 * 1024 * 1024,
     })
+    mkdirSync(join(ROOT, 'reports'), { recursive: true })
+    writeFileSync(
+      join(ROOT, 'reports', 'real-model-headless.log'),
+      `${submitted.stdout ?? ''}${submitted.stderr ?? ''}`,
+    )
     if (submitted.status !== 0) {
       throw new Error(`真实模型提交需求失败：${submitted.stderr || submitted.stdout}`)
     }
@@ -937,12 +951,26 @@ async function main(): Promise<void> {
     if (process.env.FORGELOOP_REAL_MODEL_KEEP === '1') {
       console.log(`[real-model-e2e] 保留现场：DSH_HOME=${home}；项目=${projectDir}；记录=${dbPath}`)
     } else {
+      const reports = join(ROOT, 'reports')
+      mkdirSync(reports, { recursive: true })
+      const lockFile = join(recordsRoot, 'host.lock', 'owner.json')
+      if (existsSync(lockFile)) {
+        writeFileSync(join(reports, 'real-model-host-lock.json'), readFileSync(lockFile))
+      }
       rmSync(workspace, { recursive: true, force: true })
     }
   }
 }
 
 /** 关闭隔离 web 进程：先 SIGTERM，5 秒内没退出就 SIGKILL，避免脚本卡在子进程回收上。 */
+
+function captureHostLog(child: ReturnType<typeof spawn>, file: string): void {
+  mkdirSync(dirname(file), { recursive: true })
+  for (const stream of [child.stdout, child.stderr]) {
+    stream?.on('data', (chunk: Buffer) => appendFileSync(file, chunk))
+  }
+}
+
 async function stopChild(child: ReturnType<typeof spawn>): Promise<void> {
   if (child.exitCode !== null) return
   child.kill('SIGTERM')
