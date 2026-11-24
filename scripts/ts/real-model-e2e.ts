@@ -52,6 +52,8 @@ const TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_TIMEOUT_MS ?? 1_800_0
 const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEOUT_MS ?? 600_000)
 /** blocked 的宽限期：默认可自动重排，持续阻塞超过该时长才判失败。 */
 const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_MS ?? 240_000)
+/** 需求阶段允许分析失败后被协调器自动重排的观察窗口。 */
+const STAGE_RETRY_GRACE_MS = 420_000
 /** 单回合上限：真实模型规划/实现可能超过 10 分钟，默认放宽到 30 分钟。 */
 const TURN_TIMEOUT_SECONDS = Number(process.env.FORGELOOP_REAL_MODEL_TURN_TIMEOUT_SECONDS ?? 1800)
 /**
@@ -310,6 +312,7 @@ async function pollRequirementStage(
 ): Promise<RequirementStageSnapshot> {
   const deadline = Date.now() + TIMEOUT_MS
   let lastLine = ''
+  let failedSince: number | null = null
   while (Date.now() < deadline) {
     if (!existsSync(dbPath)) {
       await sleep(2_000)
@@ -377,10 +380,16 @@ async function pollRequirementStage(
           throw new Error(`需求停在 ${requirement.status}：${line}`)
         }
         if (requirement.status === 'analysis_failed') {
-          throw new Error(
-            `分析失败（attempt=${attempt?.attempt ?? 0}，${attempt?.outcome ?? 'unknown'}）：${(attempt?.detail ?? '').slice(0, 1200)}`,
-          )
+          failedSince ??= Date.now()
+          if (Date.now() - failedSince > STAGE_RETRY_GRACE_MS) {
+            throw new Error(
+              `分析持续失败超过 ${Math.round(STAGE_RETRY_GRACE_MS / 1000)} 秒（attempt=${attempt?.attempt ?? 0}，${attempt?.outcome ?? 'unknown'}）：${(attempt?.detail ?? '').slice(0, 1200)}`,
+            )
+          }
+          await sleep(2_000)
+          continue
         }
+        failedSince = null
         if (admission && analysis) {
           return { requirement, admission, analysis, attempt, spec }
         }
