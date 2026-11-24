@@ -614,13 +614,20 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
 - 引擎：SQLite，Node 内置 `node:sqlite`，WAL 与 `busy_timeout`；不引入原生扩展。
 - 位置：`<recordsRoot>/projects/<project>/records.sqlite`；插件级运行日志写入
   `<recordsRoot>/logs/plugin.log`，租户运行日志写入各自 `<recordsRoot>/projects/<project>/logs/plugin.log`
-  （同时保留宿主 console 输出）：默认 JSON Lines
-  （`ts`/`level`/`message`，可带 `event`/`reqId`/`taskId`/`actionId` 与 `error` 栈），
-  按 `logging.maxBytes` 轮转为带日期后缀的文件（如 `plugin-2026-11-12.log`，同日多次轮转追加序号），
-  历史文件不删除、不覆盖；`logging.level` 控制写盘与 console 级别，
-  凭据形态在写入前脱敏。运维只读工具通过内建制品 `forgeloop-plugin` 的 `plugin` 日志读取**当前租户**
-  项目日志尾部，无需 `ops.artifacts` 配置；显式配置同 id 时以配置为准。插件级宿主日志
-  `<recordsRoot>/logs/plugin.log` 只作为磁盘运维证据，不通过工具暴露（其中含全部工作区身份）。
+  （同时把各条日志按级别回显到宿主 console）。日志核心用 `pino`，轮转用 `pino-roll`：
+  - 统一 JSON Lines（`ts`/`level`/`message`，可带 `event`/`reqId`/`taskId`/`actionId`/`error` 栈），
+    不再提供 text 格式；
+  - `logging.level` 支持 `debug`/`info`/`warn`/`error`；`debug` 记录 Agent 回合
+    （提示词、模型输出、工具调用名与入参截断）和真实命令（argv、退出码、输出截断）；
+  - 按天轮转，文件名 `plugin.<date>.<n>.log`；当天之前的文件压缩为 `.log.gz`，
+    超过 `logging.retentionDays`（默认 14）的压缩文件删除；`logging.maxBytes` 仍限制单文件大小；
+  - 相同 warn/error 在 60 秒窗口内折叠计数，窗口后的首次写入带 `repeated`/`firstAt`/`lastAt`，
+    避免同一故障刷满磁盘；
+  - 凭据形态（Bearer、`sk-`、`api_key`/`token`/`secret`/`password`）在写盘前脱敏，日志、Agent 转录与
+    命令证据共用同一套规则；提示词、模型输出与命令输出本身保留原文，用于审计与复现。
+  - 读取端用 `pluginLogPath`/`hostLogPath` 解析当前活动文件；运维只读工具通过内建制品
+    `forgeloop-plugin` 的 `plugin` 日志读取**当前租户**项目日志尾部，无需 `ops.artifacts` 配置；
+    显式配置同 id 时以配置为准。插件级宿主日志只作为磁盘运维证据，不通过工具暴露（其中含全部工作区身份）。
 - 表：需求与版本、需求文档快照（`requirement_documents`：每个需求版本一条，正文仍在需求版本原文）、分析、分析尝试（含 `stale` 迟到审计）、分析失效登记、结构化需求说明（`requirement_analysis_specs` JSON 旁置；除业务要点与验收项外还保存查证依据 `references`、功能地图 `ui_map` 与验收样例 `samples`，均绑定分析版本）、澄清问题与逐题回答（`requirement_clarification_question_answers`，旧格式只读回退）、业务背景变更草稿与应用记录、需求库索引（`library_entries`：`docs/product/library/` 条目的同步快照与缺失标记，正文仍在项目文档，不复制）、需求库重建运行（`library_rebuilds`：状态、阶段、材料／批次／发布计数、触发者与来源、报告路径与发布清单）、系统准入、需求队列、内建问题单、主动停止与恢复、任务包、历史任务包批准／实现前评审、
   需求级代码候选、受控提交、独立测试（含追加式验证尝试）、业务验收、任务运行、任务产物、产物历史、工时、取消、证据路径、失败轮次、授权、候选包、
   候选构建、部署核对、可安装交付（`requirement_installable_deliveries`：六项材料身份、安装说明摘要、

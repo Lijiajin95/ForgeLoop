@@ -1,5 +1,13 @@
 import { parseJsonObject } from '../domain/json.js'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { basename, join } from 'node:path'
 import { candidatesDir } from '../config.js'
 import type { ForgeLoopConfig } from '../config.js'
@@ -9,6 +17,7 @@ import { linkSharedModules, verificationBlocking } from './service-helpers.js'
 import type { Requirement } from '../domain/requirement.js'
 import { buildAcceptanceBinding, type AcceptanceBindingInput } from './acceptance-binding.js'
 import { requireGit, runCommand } from './workspace.js'
+import { clipText, loggerFor, redactText } from './log.js'
 import type { Repository, VerificationRecord, BusinessReviewRecord } from '../records/repository.js'
 import { authorizePlan, type TaskPlan } from '../domain/task-plan.js'
 import type { StatusBoardView } from './board.js'
@@ -317,11 +326,20 @@ export class CandidatePipeline {
         dir,
         this.deps.config.formalTestTimeoutSeconds * 1000,
       )
+      if (this.deps.config.logging.level === 'debug') {
+        loggerFor(this.deps.config).debug('command.end', {
+          event: 'command.end',
+          label,
+          argv: command,
+          exitCode: result.code,
+          output: clipText(redactText(`${result.stdout}\n${result.stderr}`)),
+        })
+      }
       log.push(
         `=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`,
       )
       if (result.code !== 0) {
-        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        this.writeBuildLog(dir, log)
         return {
           ok: false,
           result: fail(
@@ -332,7 +350,7 @@ export class CandidatePipeline {
       }
       const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
       if (changed.length > 0) {
-        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        this.writeBuildLog(dir, log)
         return {
           ok: false,
           result: fail(
@@ -342,7 +360,7 @@ export class CandidatePipeline {
         }
       }
     }
-    writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+    this.writeBuildLog(dir, log)
     return { ok: true, dir, source, packageVersion, log: log.join('\n') }
   }
 
@@ -504,6 +522,16 @@ export class CandidatePipeline {
     )
   }
 
+  private writeBuildLog(dir: string, log: readonly string[]): void {
+    const path = join(dir, 'candidate-build.log')
+    writeFileSync(path, redactText(log.join('\n')), 'utf8')
+    try {
+      chmodSync(path, 0o600)
+    } catch {
+      // Windows 上无 POSIX 权限位。
+    }
+  }
+
   private async runCandidateCommands(
     dir: string,
     commands: ReadonlyArray<{ label: string; command: readonly string[] }>,
@@ -522,11 +550,20 @@ export class CandidatePipeline {
         dir,
         this.deps.config.formalTestTimeoutSeconds * 1000,
       )
+      if (this.deps.config.logging.level === 'debug') {
+        loggerFor(this.deps.config).debug('command.end', {
+          event: 'command.end',
+          label,
+          argv: command,
+          exitCode: result.code,
+          output: clipText(redactText(`${result.stdout}\n${result.stderr}`)),
+        })
+      }
       log.push(
         `=== ${label} (exit ${result.code})\n$ ${command.join(' ')}\n${result.stdout}\n${result.stderr}`,
       )
       if (result.code !== 0) {
-        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        this.writeBuildLog(dir, log)
         return {
           ok: false,
           result: fail(
@@ -537,7 +574,7 @@ export class CandidatePipeline {
       }
       const changed = this.protectedFilesChanged(dir, protectedBefore, buildIgnore)
       if (changed.length > 0) {
-        writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+        this.writeBuildLog(dir, log)
         return {
           ok: false,
           result: fail(
@@ -547,7 +584,7 @@ export class CandidatePipeline {
         }
       }
     }
-    writeFileSync(join(dir, 'candidate-build.log'), log.join('\n'), 'utf8')
+    this.writeBuildLog(dir, log)
     return { ok: true }
   }
 

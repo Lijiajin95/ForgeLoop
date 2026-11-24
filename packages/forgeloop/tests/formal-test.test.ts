@@ -197,4 +197,23 @@ describe('formal test runner through the subprocess service', () => {
     expect(result.aborted).toBe(true)
     expect(fake.terminated()).toBe(true)
   })
+
+  it('redacts secrets in the captured output and the evidence log', async () => {
+    const result = await runFormalTest({
+      cwd: dir,
+      argv: [
+        'node',
+        '-e',
+        'console.log("api_key=abcd1234 sk-live-9876543210 Bearer abcdefghijklmnop")',
+      ],
+      timeoutMs: 5000,
+      logPath: logPath('secrets'),
+    })
+    expect(result.output).not.toContain('abcd1234')
+    expect(result.output).not.toContain('9876543210')
+    expect(result.output).toContain('api_key=[REDACTED]')
+    const log = readFileSync(result.logPath, 'utf8')
+    expect(log).not.toContain('abcd1234')
+    expect(log).toContain('sk-[REDACTED]')
+  })
 })

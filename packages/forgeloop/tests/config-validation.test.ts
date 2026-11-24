@@ -31,21 +31,25 @@ describe('configuration defaults', () => {
   it('defaults to JSON logging at info level with a 10 MiB rotation ceiling', () => {
     expect(resolveConfig({}, cwd).logging).toEqual({
       level: 'info',
-      format: 'json',
       maxBytes: 10 * 1024 * 1024,
+      retentionDays: 14,
     })
     expect(
-      resolveConfig({ logging: { level: 'warn', format: 'text', maxBytes: 1024 } }, cwd).logging,
-    ).toEqual({ level: 'warn', format: 'text', maxBytes: 1024 })
+      resolveConfig({ logging: { level: 'warn', maxBytes: 1024, retentionDays: 7 } }, cwd).logging,
+    ).toEqual({ level: 'warn', maxBytes: 1024, retentionDays: 7 })
+    expect(resolveConfig({ logging: { level: 'debug' } }, cwd).logging.level).toBe('debug')
     expect(resolveConfig({ logging: { maxBytes: 0 } }, cwd).logging.maxBytes).toBe(0)
   })
 
-  it('rejects unknown log levels, formats and invalid rotation sizes', () => {
-    expect(() => resolveConfig({ logging: { level: 'debug' } }, cwd)).toThrow(
-      '配置 logging.level 只能是 info、warn 或 error',
+  it('rejects unknown log levels and invalid rotation or retention sizes', () => {
+    expect(() => resolveConfig({ logging: { level: 'trace' } }, cwd)).toThrow(
+      '配置 logging.level 只能是 debug、info、warn 或 error',
     )
-    expect(() => resolveConfig({ logging: { format: 'xml' } }, cwd)).toThrow(
-      '配置 logging.format 只能是 json 或 text',
+    expect(() => resolveConfig({ logging: { retentionDays: 0 } }, cwd)).toThrow(
+      '配置 logging.retentionDays 必须是 1 到 3650 之间的整数',
+    )
+    expect(() => resolveConfig({ logging: { retentionDays: 1.5 } }, cwd)).toThrow(
+      '配置 logging.retentionDays 必须是 1 到 3650 之间的整数',
     )
     expect(() => resolveConfig({ logging: { maxBytes: -1 } }, cwd)).toThrow(
       '配置 logging.maxBytes 必须是 0 到 1073741824 之间的整数',

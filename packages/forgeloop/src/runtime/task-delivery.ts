@@ -432,6 +432,7 @@ export class TaskDelivery {
     const testStarted = Date.now()
     const test = await this.deps.formalTest({
       ctx: this.deps.ctx,
+      config: this.deps.config,
       cwd: worktree,
       argv: task.testCommand,
       timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,

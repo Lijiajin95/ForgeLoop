@@ -10261,19 +10261,19 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 - 研发澄清统计：新增 equirement_dev_clarifications 表（req_id、seq、requirement_version、question、context、created_at）；
   equestDevClarification 在追加需求版本后记录一条；equirement-detail 返回 devClarifications 与 devClarificationCount。
-- 自验前置：研发回合返回后先校验自验报告充分性，不足立即 locked，不再先跑正式测试、提交工作副本现场。
-- 瞬态自动重试：新增 domain/failure-classification.ts。超时、连接重置、限流、5xx、etch failed 等归为 transient，
+- 自验前置：研发回合返回后先校验自验报告充分性，不足立即 blocked，不再先跑正式测试、提交工作副本现场。
+- 瞬态自动重试：新增 domain/failure-classification.ts。超时、连接重置、限流、5xx、fetch failed 等归为 transient，
   规划与实现回合自动重试最多 2 次并退避，不消耗任务尝试次数；spawn ENOENT、额度不足、校验失败等仍按原逻辑阻塞。
 
 ### 277.2 验证
 
-- 	sc、ESLint、Prettier、make check-static、架构契约、token/断言/可靠性登记通过。
-- 	ests/dev-autonomy.test.ts 4 项（澄清计数、前置校验、失败分类、瞬态重试）与
-  coverage-advance-self-verification、coverage-execution-dev、dev-sessions、oard-channel 通过。
+- tsc、ESLint、Prettier、make check-static、架构契约、token/断言/可靠性登记通过。
+- tests/dev-autonomy.test.ts 4 项（澄清计数、前置校验、失败分类、瞬态重试）与
+  coverage-advance-self-verification、coverage-execution-dev、dev-sessions、board-channel 通过。
 
 ### 277.3 未完成与原因
 
-- **取消授权/额度限制未实施**：默认配置已经是无限（ailureRoundsPerGrant、maxTaskAttempts、maxVerificationAttempts\n  均为 -1，本机 profile 未设置），真正取消是指忽略显式配置的上限；这会改变产品规则 §7 的失败/工时语义，
+- **取消授权/额度限制未实施**：默认配置已经是无限（failureRoundsPerGrant、maxTaskAttempts、maxVerificationAttempts\n  均为 -1，本机 profile 未设置），真正取消是指忽略显式配置的上限；这会改变产品规则 §7 的失败/工时语义，
   并影响 8 个测试文件、约 50 处断言（工时 14 处、额度 23 处、追加授权 9 处等），需单独一批迁移与产品文档更新。
 - **红绿灯命令真实执行未实施**：红灯要求在修复前失败，而当前回合结束时工作副本已包含修复；
   要真实执行需在基线 snapshotCommit 的隔离副本上重跑，属独立设计与实现。
@@ -10341,3 +10341,28 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 - 需求评审记录（检查表、评审人≠作者）、基线/变更的自动分类与重排、追踪矩阵闭环报告仍是设计稿，未实现。
 - `docs/product/requirement-stage-delivery.md` 的交付物表尚未加入质量属性与数据要求两行。
+## 280. 日志体系改造：pino + 轮转压缩 + 去重 + debug（2026-11-24）
+
+来源：日志审查发现四类问题——`plugin.log` 只记启动与协调器错误、业务阶段无日志；同一错误可刷
+1095 行/861 KB；格式无版本且新旧 text/JSON 混杂；转录与证据不脱敏。
+
+- 核心改用 `pino`，轮转用 `pino-roll`（新增运行时依赖 `pino@^10.4.0`、`pino-roll@^4.0.0`）。
+  `runtime/log.ts` 保留 `createPluginLogger`/`createHostLogger` 接口，测试可注入 destination。
+- 统一 JSON：`ts`/`level`（大写）/`message` + 可选 `event`/`reqId`/`taskId`/`actionId`/`error`；
+  删除 `logging.format`（不再支持 text），配置校验拒绝未知级别；日志仍按级别回显 console。
+- 新增 `debug` 级别：Agent 回合记录提示词、模型输出、工具调用名与入参（截断 8k），真实命令记录
+  argv、退出码与输出（截断 8k）；默认 `info` 不产生这些内容。
+- 错误去重：相同 warn/error 在 60 秒窗口折叠计数（键表上限 500），窗口后首条带
+  `repeated`/`firstAt`/`lastAt`。
+- 轮转与压缩：按天生成 `plugin.<date>.<n>.log`，当天之前的文件 gzip 为 `.log.gz`，
+  超过 `logging.retentionDays`（默认 14，1–3650）删除；`logging.maxBytes` 仍限制单文件大小。
+  读取端 `pluginLogPath`/`hostLogPath` 解析当前活动文件；外部监控若写死 `plugin.log` 需改为读取最新文件。
+- 敏感数据：日志、Agent 转录、正式测试日志、候选构建日志、提交检查日志共用同一套凭据脱敏
+  （Bearer、`sk-`、`api_key`/`token`/`secret`/`password`）；提示词、模型输出、命令输出保留原文，
+  日志/证据文件尽量设 0600（POSIX 生效）。依赖选型见 [ADR 0013](../development/adr/0013-logging-stack.md)。
+- 测试：`log.test.ts` 16 项（JSON 结构、级别、去重窗口、轮转压缩与保留、脱敏、生产模式写入与
+  活动文件解析）；`transcript`/`formal-test`/`config-validation` 同步。`npm run check:commit` 全量通过。
+- 顺带修复 `docs/verification/status.md` §277/278 中 4 处控制字符损坏（`\b`、`\t`、`\f` 与字面 `\n`
+  替换事故），否则该文件无法通过格式与链接检查。
+- 未完成：日志目录权限在 Windows 上依赖 ACL，0600 仅 POSIX 生效；本批未把既有历史日志迁移为压缩格式。
+

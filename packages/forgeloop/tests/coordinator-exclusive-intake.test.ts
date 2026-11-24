@@ -58,7 +58,9 @@ describe('coordinator ownership', () => {
       expect(result.ok, result.message).toBe(true)
       const reqId = (result.data as { reqId: string }).reqId
       expect(result.message).toContain('等待研发任务空闲')
-      expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([reqId])
+      expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toEqual([
+        reqId,
+      ])
       expect(runtime.repo.latestAnalysis(reqId)).toBeNull()
     } finally {
       holder.release()

@@ -179,7 +179,9 @@ export class ForgeLoopRuntime {
       intakeQueuedRequirement: () => this.intakeQueuedRequirement(),
     })
     this.issues = new IssueStore(this.repo.db)
-    this.runner = options.runner ?? new AgentRunner({ ctx: options.ctx, agent: this.config.agent })
+    this.runner =
+      options.runner ??
+      new AgentRunner({ ctx: options.ctx, agent: this.config.agent, config: this.config })
     this.ops = new OpsRuntime({
       config: this.config,
       repo: this.repo,
@@ -189,6 +191,7 @@ export class ForgeLoopRuntime {
     })
     this.formalTest = options.formalTest ?? runFormalTest
     this.verificationChecks = new VerificationCheckRegistry({
+      config: this.config,
       ctx: this.ctx,
       formalTest: this.formalTest,
       now: () => this.now(),

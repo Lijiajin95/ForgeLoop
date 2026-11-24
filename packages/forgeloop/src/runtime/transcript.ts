@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { redactValue } from './log.js'
 
 export type TranscriptEvent = Record<string, unknown>
 
@@ -63,6 +64,11 @@ export class TranscriptWriter {
   private append(chunk: string): void {
     if (!this.opened) this.write('')
     appendFileSync(this.path, chunk, 'utf8')
+    try {
+      chmodSync(this.path, 0o600)
+    } catch {
+      // Windows 上无 POSIX 权限位；失败不影响写入。
+    }
   }
 
   private write(text: string): void {
@@ -73,5 +79,5 @@ export class TranscriptWriter {
 }
 
 function serialize(event: TranscriptEvent): string {
-  return JSON.stringify(event)
+  return JSON.stringify(redactValue(event))
 }

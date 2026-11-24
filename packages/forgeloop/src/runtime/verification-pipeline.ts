@@ -828,6 +828,7 @@ export class VerificationPipeline {
       run: async (argv, logPath) =>
         this.deps.formalTest({
           ctx: this.deps.ctx,
+          config: this.deps.config,
           cwd: workspace,
           argv,
           timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,
@@ -849,6 +850,7 @@ export class VerificationPipeline {
       run: async ({ argv, cwd, logPath }) => {
         const test = await this.deps.formalTest({
           ctx: this.deps.ctx,
+          config: this.deps.config,
           cwd,
           argv,
           timeoutMs: this.deps.config.formalTestTimeoutSeconds * 1000,

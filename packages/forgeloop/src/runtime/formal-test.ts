@@ -1,12 +1,15 @@
 import { asRecord } from '../domain/json.js'
 import { prepareCommand } from './command-launch.js'
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { sha256OfText } from '../domain/delivery.js'
+import type { ForgeLoopConfig } from '../config.js'
+import { clipText, loggerFor, redactText } from './log.js'
 
 export interface TestRunRequest {
   readonly ctx?: Record<string, unknown>
+  readonly config?: ForgeLoopConfig
   readonly cwd: string
   readonly argv: readonly string[]
   readonly timeoutMs: number
@@ -142,6 +145,15 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
   const started = Date.now()
   const collected: Buffer[] = []
   let captured = 0
+  const config = request.config
+  const logger = config && config.logging.level === 'debug' ? loggerFor(config) : null
+  logger?.debug('command.start', {
+    event: 'command.start',
+    argv: request.argv,
+    cwd: request.cwd,
+    timeoutMs: request.timeoutMs,
+    logPath: request.logPath,
+  })
 
   const collect = (chunk: Buffer) => {
     if (captured >= MAX_CAPTURE_BYTES) return
@@ -157,19 +169,36 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
   const { exitCode, timedOut, aborted } = outcome
   const durationMs = Date.now() - started
   const output = Buffer.concat(collected).toString('utf8')
-  const log = [
-    `command: ${request.argv.map((part) => JSON.stringify(part)).join(' ')}`,
-    `cwd: ${request.cwd}`,
-    `started: ${new Date(started).toISOString()}`,
-    `duration_ms: ${durationMs}`,
-    `timed_out: ${timedOut}`,
-    `aborted: ${aborted}`,
-    `exit_code: ${exitCode === null ? 'null' : exitCode}`,
-    '--- output ---',
-    output,
-  ].join('\n')
+  const log = redactText(
+    [
+      `command: ${request.argv.map((part) => JSON.stringify(part)).join(' ')}`,
+      `cwd: ${request.cwd}`,
+      `started: ${new Date(started).toISOString()}`,
+      `duration_ms: ${durationMs}`,
+      `timed_out: ${timedOut}`,
+      `aborted: ${aborted}`,
+      `exit_code: ${exitCode === null ? 'null' : exitCode}`,
+      '--- output ---',
+      output,
+    ].join('\n'),
+  )
   mkdirSync(dirname(request.logPath), { recursive: true })
   writeFileSync(request.logPath, log, 'utf8')
+  try {
+    chmodSync(request.logPath, 0o600)
+  } catch {
+    // Windows 上无 POSIX 权限位。
+  }
+  logger?.debug('command.end', {
+    event: 'command.end',
+    argv: request.argv,
+    exitCode,
+    timedOut,
+    aborted,
+    durationMs,
+    logPath: request.logPath,
+    output: clipText(redactText(output)),
+  })
   return {
     exitCode,
     timedOut,
@@ -177,6 +206,6 @@ export async function runFormalTest(request: TestRunRequest): Promise<TestRunRes
     logPath: request.logPath,
     logSha256: sha256OfText(log),
     durationMs,
-    output,
+    output: redactText(output),
   }
 }

@@ -4,6 +4,7 @@ import { bestEffort } from './best-effort.js'
 import { join } from 'node:path'
 import { sha256OfText } from '../domain/delivery.js'
 import { RuleViolationError } from '../domain/errors.js'
+import { redactText } from './log.js'
 import { git, requireGit, runCommand } from './workspace.js'
 
 export interface CandidateFile {
@@ -237,7 +238,9 @@ async function applyAndCheck(
   )
   const checkPassed = check.code === 0
   const checkDetail = `提交检查退出码 ${check.code}`
-  const checkOutput = `${JSON.stringify(input.checkCommand)}\nexit_code: ${check.code}\n${check.stdout}\n${check.stderr}\n`
+  const checkOutput = redactText(
+    `${JSON.stringify(input.checkCommand)}\nexit_code: ${check.code}\n${check.stdout}\n${check.stderr}\n`,
+  )
   await writeFile(checkPath, checkOutput, 'utf8')
   const checkSha256 = sha256OfText(checkOutput)
   if (!checkPassed) return failure(checkDetail, { checkLogPath: checkPath, checkSha256 })

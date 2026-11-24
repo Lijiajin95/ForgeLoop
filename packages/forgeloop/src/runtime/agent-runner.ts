@@ -3,9 +3,10 @@ import { mkdirSync } from 'node:fs'
 import { errorMessage } from '../domain/errors.js'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { AgentConfig } from '../config.js'
+import type { AgentConfig, ForgeLoopConfig } from '../config.js'
 import type { AgentIdentity } from '../domain/agents.js'
 import { bestEffort } from './best-effort.js'
+import { createPluginLogger, type PluginLogger } from './log.js'
 import { TranscriptWriter } from './transcript.js'
 
 type AnyRecord = Record<string, unknown>
@@ -109,6 +110,7 @@ export function sessionFromRunner(
 export interface AgentRunnerOptions {
   readonly ctx: AnyRecord
   readonly agent: AgentConfig
+  readonly config?: ForgeLoopConfig
   readonly resumeTimeoutMs?: number
 }
 
@@ -251,6 +253,18 @@ function toolCallsOf(events: readonly AnyRecord[]): string[] {
   return names
 }
 
+const DEBUG_TEXT_LIMIT = 8_000
+
+function clipDebug(value: unknown): string {
+  let text: string
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value)
+  } catch {
+    text = String(value)
+  }
+  return text.length > DEBUG_TEXT_LIMIT ? `${text.slice(0, DEBUG_TEXT_LIMIT)}…[truncated]` : text
+}
+
 function closedSessionResult(sessionId: string, transcriptPath: string): AgentRunResult {
   return {
     status: 'error',
@@ -371,13 +385,58 @@ function idleWatch(
 export class AgentRunner {
   private readonly ctx: AnyRecord
   private readonly agent: AgentConfig
+  private readonly config: ForgeLoopConfig | undefined
+  private logger: PluginLogger | null = null
 
   private readonly resumeTimeoutMs: number
 
   constructor(options: AgentRunnerOptions) {
     this.ctx = options.ctx
     this.agent = options.agent
+    this.config = options.config
     this.resumeTimeoutMs = options.resumeTimeoutMs ?? DEFAULT_RESUME_TIMEOUT_MS
+  }
+
+  private debugLog(message: string, context: Record<string, unknown>): void {
+    if (!this.config || this.config.logging.level !== 'debug') return
+    this.logger ??= createPluginLogger(this.config)
+    this.logger.debug(message, context)
+  }
+
+  private logTurn(input: {
+    request: AgentRunRequest
+    selection: { provider: string; model: string }
+    sessionId: string
+    events: readonly AnyRecord[]
+    outcome: { status: AgentRunResult['status']; reason: string }
+    base: RunResultBase
+  }): void {
+    const { request, selection, sessionId, events, outcome, base } = input
+    this.debugLog('agent.turn', {
+      event: 'agent.turn',
+      role: request.role,
+      provider: selection.provider,
+      model: selection.model,
+      sessionId,
+      status: outcome.status,
+      reason: outcome.reason,
+      durationMs: base.durationMs,
+      toolCalls: base.toolCalls,
+      prompt: clipDebug(request.prompt),
+      output: clipDebug(base.text),
+    })
+    if (this.config?.logging.level !== 'debug') return
+    for (const event of events) {
+      if (event.type !== 'tool/call') continue
+      const data = asRecord(event.data)
+      this.debugLog('agent.tool_call', {
+        event: 'agent.tool_call',
+        role: request.role,
+        sessionId,
+        tool: typeof data?.name === 'string' ? data.name : '',
+        input: clipDebug(data?.arguments ?? data?.args ?? data?.input ?? ''),
+      })
+    }
   }
 
   resolveSelection(): { provider: string; model: string } {
@@ -766,6 +825,7 @@ export class AgentRunner {
       text,
       timeoutMs,
     })
+    this.logTurn({ request, selection, sessionId, events, outcome, base })
     return runResult(outcome.status, outcome.reason, base)
   }
 }

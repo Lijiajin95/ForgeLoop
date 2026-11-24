@@ -39,23 +39,22 @@ export interface AgentConfig {
   readonly idleTimeoutSeconds?: number
 }
 
-export const LOG_LEVELS = ['info', 'warn', 'error'] as const
+export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
 export type LogLevel = (typeof LOG_LEVELS)[number]
-export const LOG_FORMATS = ['json', 'text'] as const
-export type LogFormat = (typeof LOG_FORMATS)[number]
 
-/** 插件运行日志：默认 JSON Lines，按文件大小轮转，级别只影响写盘与 console。 */
+/** 插件运行日志：JSON Lines，按天轮转，历史文件压缩为 .log.gz。 */
 export interface LoggingConfig {
   readonly level: LogLevel
-  readonly format: LogFormat
-  /** 单个文件上限（字节）；0 表示不轮转。 */
+  /** 单个文件上限（字节）；0 表示不按大小轮转（仍按天）。 */
   readonly maxBytes: number
+  /** 压缩文件保留天数；超期删除。 */
+  readonly retentionDays: number
 }
 
 export interface RawLoggingConfig {
   level?: string
-  format?: string
   maxBytes?: number
+  retentionDays?: number
 }
 
 export interface OpsMonitorProcess {
@@ -1190,13 +1189,11 @@ function parseArtifactRuntime(
 
 const DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024
 const MAX_LOG_MAX_BYTES = 1024 * 1024 * 1024
+const DEFAULT_LOG_RETENTION_DAYS = 14
+const MAX_LOG_RETENTION_DAYS = 3650
 
 function isLogLevel(value: string): value is LogLevel {
   return LOG_LEVELS.some((candidate) => candidate === value)
-}
-
-function isLogFormat(value: string): value is LogFormat {
-  return LOG_FORMATS.some((candidate) => candidate === value)
 }
 
 function parseLogging(raw: RawLoggingConfig | undefined): LoggingConfig {
@@ -1204,13 +1201,7 @@ function parseLogging(raw: RawLoggingConfig | undefined): LoggingConfig {
   const level = source.level === undefined ? 'info' : source.level
   if (!isLogLevel(level)) {
     throw new RuleViolationError(
-      `配置 logging.level 只能是 info、warn 或 error，实际 ${JSON.stringify(source.level)}`,
-    )
-  }
-  const format = source.format === undefined ? 'json' : source.format
-  if (!isLogFormat(format)) {
-    throw new RuleViolationError(
-      `配置 logging.format 只能是 json 或 text，实际 ${JSON.stringify(source.format)}`,
+      `配置 logging.level 只能是 debug、info、warn 或 error，实际 ${JSON.stringify(source.level)}`,
     )
   }
   const maxBytes = source.maxBytes === undefined ? DEFAULT_LOG_MAX_BYTES : source.maxBytes
@@ -1224,7 +1215,19 @@ function parseLogging(raw: RawLoggingConfig | undefined): LoggingConfig {
       `配置 logging.maxBytes 必须是 0 到 ${MAX_LOG_MAX_BYTES} 之间的整数，实际 ${JSON.stringify(source.maxBytes)}`,
     )
   }
-  return { level, format, maxBytes }
+  const retentionDays =
+    source.retentionDays === undefined ? DEFAULT_LOG_RETENTION_DAYS : source.retentionDays
+  if (
+    typeof retentionDays !== 'number' ||
+    !Number.isInteger(retentionDays) ||
+    retentionDays < 1 ||
+    retentionDays > MAX_LOG_RETENTION_DAYS
+  ) {
+    throw new RuleViolationError(
+      `配置 logging.retentionDays 必须是 1 到 ${MAX_LOG_RETENTION_DAYS} 之间的整数，实际 ${JSON.stringify(source.retentionDays)}`,
+    )
+  }
+  return { level, maxBytes, retentionDays }
 }
 
 function parseOpsConfig(raw: RawOpsConfig | undefined): OpsConfig {

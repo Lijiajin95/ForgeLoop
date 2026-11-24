@@ -12,6 +12,7 @@ import {
 import { join, relative as relativePath } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { bestEffort } from './best-effort.js'
+import type { ForgeLoopConfig } from '../config.js'
 import type {
   VerificationCheckPlan,
   VerificationCheckRun,
@@ -83,6 +84,7 @@ interface ActiveContext {
 
 export interface VerificationCheckRegistryDeps {
   readonly ctx: NonNullable<Parameters<typeof runFormalTest>[0]['ctx']>
+  readonly config: ForgeLoopConfig
   readonly formalTest: typeof runFormalTest
   readonly now: () => string
 }
@@ -295,6 +297,7 @@ export class VerificationCheckRegistry {
     try {
       const test = await this.deps.formalTest({
         ctx: this.deps.ctx,
+        config: this.deps.config,
         cwd: context.activation.workspace,
         argv: check.argv,
         timeoutMs: context.activation.timeoutMs,
@@ -472,6 +475,7 @@ export class VerificationCheckRegistry {
       run: async ({ argv, cwd, logPath }) => {
         const test = await this.deps.formalTest({
           ctx: this.deps.ctx,
+          config: this.deps.config,
           cwd,
           argv,
           timeoutMs: context.activation.timeoutMs,
@@ -540,6 +544,7 @@ export class VerificationCheckRegistry {
       run: async ({ argv, cwd, logPath }) => {
         const test = await this.deps.formalTest({
           ctx: this.deps.ctx,
+          config: this.deps.config,
           cwd,
           argv,
           timeoutMs: context.activation.timeoutMs,

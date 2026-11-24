@@ -1,4 +1,4 @@
-﻿import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -148,5 +148,23 @@ describe('incremental transcript', () => {
     new TranscriptWriter(path, sourceOf(eventsOf(1)).source).flush()
 
     expect(readFileSync(path, 'utf8')).toBe(legacyTranscript(eventsOf(1)))
+  })
+
+  it('redacts secret-shaped fields and token text before writing', () => {
+    const dir = tempDir()
+    const path = join(dir, 'dev.jsonl')
+    const events: TranscriptEvent[] = [
+      {
+        type: 'tool/result',
+        seq: 0,
+        data: { output: 'api_key=abcd1234', headers: { authorization: 'Bearer abcdefghijklmnop' } },
+      },
+    ]
+    new TranscriptWriter(path, sourceOf(events).source).flush()
+    const text = readFileSync(path, 'utf8')
+    expect(text).not.toContain('abcd1234')
+    expect(text).not.toContain('abcdefghijklmnop')
+    expect(text).toContain('api_key=[REDACTED]')
+    expect(text).toContain('"authorization":"[REDACTED]"')
   })
 })
