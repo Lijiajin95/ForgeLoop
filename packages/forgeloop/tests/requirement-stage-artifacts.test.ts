@@ -86,6 +86,8 @@ function specOf(overrides: Partial<AnalysisSpec> = {}): AnalysisSpec {
     references: [],
     uiMap: [],
     samples: [],
+    quality: [],
+    data: [],
     ...overrides,
   }
 }
@@ -231,7 +233,12 @@ describe('requirement stage artifacts', () => {
         }).points,
       }),
     )
-    expect(gaps.map((gap) => gap.code).sort()).toEqual(['counter_example', 'references', 'samples'])
+    expect(gaps.map((gap) => gap.code).sort()).toEqual([
+      'counter_example',
+      'references',
+      'sample_coverage',
+      'samples',
+    ])
 
     expect(
       requirementStageGaps(

@@ -10299,3 +10299,45 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 - 结论：`autoAdvance: false` 的注释所述同步子进程根因已不在当前构建中；但恢复自动推进前需要
   把 `b07a4bf` 的构建装入 live profile，否则研发/测试仍会因 `spawn npm ENOENT` 失败。
 - 未执行：插件构建与安装、profile 配置改为 `autoAdvance: true`、宿主重启；这些是部署动作，等待所有者授权。
+## 279. 需求阶段工程化产物：质量属性与数据要求（2026-11-24）
+
+按《Software Requirements》开发阶段的非功能与数据需求，把两类此前缺失的产物做成硬约束，提示词升到
+`analysis-v7`。代码改动在 worktree `engineering-spec` 完成，本记录在该 worktree 提交。
+
+### 278.1 新增产物与硬约束
+
+- 质量属性 `QA-n`：种类（performance/security/usability/availability/compatibility/observability/compliance）、
+  metric、含数值与单位的目标、测量方式与位置，关联 BP/AC。程序拒绝没有数值的目标（无法度量）与未关联的条目。
+- 数据要求 `DATA-n`：实体、字段名/类型/约束、保留期与处置、是否个人信息，关联 BP/AC。程序拒绝空字段列表、
+  缺名称或类型、以及 `pii=true` 却没有保留期的条目。
+- 两类都沿用稳定编号与历史编号规则；问题输入仍然禁止携带任何结构化产物。
+- 存储：仍写入 `requirement_analysis_specs.spec_json`（`quality_attributes`、`data_requirements`），
+  旧记录按空数组读取，不需要迁移。
+- 页面：需求详情新增「质量属性」「数据要求」两块只读展示，中英文案齐全。
+
+### 278.2 软约束（只读缺口）
+
+`requirementStageGaps` 扩展三类提示，仍不改准入：
+
+| 缺口 | 触发条件 |
+| --- | --- |
+| `sample_coverage` | 有验收项但没有被任何样例覆盖，逐条列出 AC 编号 |
+| `quality_attributes` | 需求原文或业务要点提到性能/并发/安全/权限/可用性/兼容等，但质量属性为空 |
+| `data_requirements` | 需求原文或业务要点涉及数据/字段/保留/导出/个人信息，但数据要求为空 |
+
+关键词命中只作为“提示有材料缺失”的确定性判据，不判断内容质量。
+
+### 278.3 验证
+
+- 新增 `tests/engineering-spec.test.ts` 8 项：解析、可度量拒绝、未知种类、未关联拒绝、空字段/缺类型/PII 保留期、
+  问题输入拒绝、缺口触发与不触发、记录与读取往返。
+- 受影响用例同步更新：`mutation-gap-issues`（提示词版本 v7）、`mutation-gap-requirement`（草稿默认字段）、
+  提示词与详情快照重新生成。
+- 已运行：typecheck、eslint、`make check-static`；需求阶段、客户端、详情视图与规格相关测试文件全部通过。
+- 未运行：真实模型一次 v7 分析。新字段由模型按提示词产出，需在下一轮真实需求验收中确认模型能稳定给出
+  可度量的质量属性与数据要求；若模型长期留空，缺口会提示但不会阻断。
+
+### 278.4 未完成
+
+- 需求评审记录（检查表、评审人≠作者）、基线/变更的自动分类与重排、追踪矩阵闭环报告仍是设计稿，未实现。
+- `docs/product/requirement-stage-delivery.md` 的交付物表尚未加入质量属性与数据要求两行。

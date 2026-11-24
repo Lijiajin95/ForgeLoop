@@ -102,6 +102,51 @@ export interface AcceptanceSample {
   readonly observeAt: string
 }
 
+export type QualityKind =
+  | 'performance'
+  | 'security'
+  | 'usability'
+  | 'availability'
+  | 'compatibility'
+  | 'observability'
+  | 'compliance'
+
+const QUALITY_KINDS: readonly QualityKind[] = [
+  'performance',
+  'security',
+  'usability',
+  'availability',
+  'compatibility',
+  'observability',
+  'compliance',
+]
+
+export interface QualityAttribute {
+  readonly id: string
+  readonly kind: QualityKind
+  readonly metric: string
+  readonly target: string
+  readonly measure: string
+  readonly pointIds: readonly string[]
+  readonly acceptanceIds: readonly string[]
+}
+
+export interface DataField {
+  readonly name: string
+  readonly type: string
+  readonly constraints: string
+}
+
+export interface DataRequirement {
+  readonly id: string
+  readonly entity: string
+  readonly fields: readonly DataField[]
+  readonly retention: string
+  readonly pii: boolean
+  readonly pointIds: readonly string[]
+  readonly acceptanceIds: readonly string[]
+}
+
 export interface AnalysisSpec {
   readonly points: readonly BusinessPoint[]
   readonly acceptance: readonly AcceptanceCriterion[]
@@ -110,13 +155,20 @@ export interface AnalysisSpec {
   readonly references: readonly EvidenceReference[]
   readonly uiMap: readonly UiMapEntry[]
   readonly samples: readonly AcceptanceSample[]
+  readonly quality: readonly QualityAttribute[]
+  readonly data: readonly DataRequirement[]
 }
 
 /** 校验入口接受的规格：历史记录与调用方可能还没有本轮新增的产物。 */
-export type SpecInput = Omit<AnalysisSpec, 'references' | 'uiMap' | 'samples'> & {
+export type SpecInput = Omit<
+  AnalysisSpec,
+  'references' | 'uiMap' | 'samples' | 'quality' | 'data'
+> & {
   readonly references?: readonly EvidenceReference[] | undefined
   readonly uiMap?: readonly UiMapEntry[] | undefined
   readonly samples?: readonly AcceptanceSample[] | undefined
+  readonly quality?: readonly QualityAttribute[] | undefined
+  readonly data?: readonly DataRequirement[] | undefined
 }
 
 /** 只需规格字段的分析投影；避免 domain/requirement 与 domain/spec 形成循环依赖。 */
@@ -128,6 +180,8 @@ export interface SpecBearingAnalysis {
   readonly references?: readonly EvidenceReference[] | undefined
   readonly uiMap?: readonly UiMapEntry[] | undefined
   readonly samples?: readonly AcceptanceSample[] | undefined
+  readonly quality?: readonly QualityAttribute[] | undefined
+  readonly data?: readonly DataRequirement[] | undefined
   readonly clarifications?: readonly string[] | undefined
 }
 
@@ -141,6 +195,8 @@ const ASSUMPTION_ID = /^AS-(\d+)$/
 const REFERENCE_ID = /^REF-(\d+)$/
 const UI_MAP_ID = /^UI-(\d+)$/
 const SAMPLE_ID = /^SMP-(\d+)$/
+const QUALITY_ID = /^QA-(\d+)$/
+const DATA_ID = /^DATA-(\d+)$/
 
 function nonEmpty(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -385,6 +441,76 @@ function parseSamples(raw: unknown): AcceptanceSample[] {
   })
 }
 
+function parseQuality(raw: unknown): QualityAttribute[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 quality_attributes 必须是数组')
+  return raw.map((item, index) => {
+    const field = `quality_attributes[${index}]`
+    const data = objectAt(item, field)
+    const kind = QUALITY_KINDS.find((candidate) => candidate === data.kind)
+    if (!kind) {
+      throw new MalformedError(
+        `分析字段 ${field}.kind 必须是 performance、security、usability、availability、compatibility、observability 或 compliance`,
+      )
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      kind,
+      metric: nonEmpty(data.metric, `${field}.metric`),
+      target: nonEmpty(data.target, `${field}.target`),
+      measure: nonEmpty(data.measure, `${field}.measure`),
+      pointIds: stringList(data.point_ids ?? data.pointIds, `${field}.point_ids`),
+      acceptanceIds: stringList(
+        data.acceptance_ids ?? data.acceptanceIds,
+        `${field}.acceptance_ids`,
+      ),
+    } satisfies QualityAttribute
+  })
+}
+
+function parseDataField(value: unknown, field: string): DataField {
+  const data = objectAt(value, field)
+  return {
+    name: nonEmpty(data.name, `${field}.name`),
+    type: nonEmpty(data.type, `${field}.type`),
+    constraints: typeof data.constraints === 'string' ? data.constraints.trim() : '',
+  }
+}
+
+function parseDataRequirements(raw: unknown): DataRequirement[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 data_requirements 必须是数组')
+  return raw.map((item, index) => {
+    const field = `data_requirements[${index}]`
+    const data = objectAt(item, field)
+    if (!Array.isArray(data.fields) || data.fields.length === 0) {
+      throw new MalformedError(`${field}.fields 必须给出至少一个字段`)
+    }
+    const pii = data.pii
+    if (typeof pii !== 'boolean') {
+      throw new MalformedError(`分析字段 ${field}.pii 必须是布尔值`)
+    }
+    const retention = typeof data.retention === 'string' ? data.retention.trim() : ''
+    if (pii && !retention) {
+      throw new MalformedError(`${field} 标记为个人信息时必须给出保留期与处置方式`)
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      entity: nonEmpty(data.entity, `${field}.entity`),
+      fields: data.fields.map((entry, position) =>
+        parseDataField(entry, `${field}.fields[${position}]`),
+      ),
+      retention,
+      pii,
+      pointIds: stringList(data.point_ids ?? data.pointIds, `${field}.point_ids`),
+      acceptanceIds: stringList(
+        data.acceptance_ids ?? data.acceptanceIds,
+        `${field}.acceptance_ids`,
+      ),
+    } satisfies DataRequirement
+  })
+}
+
 export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields {
   const rawPoints = data.business_points
   if (rawPoints !== undefined && !Array.isArray(rawPoints)) {
@@ -401,6 +527,8 @@ export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields
   const references = parseReferences(data.references)
   const uiMap = parseUiMap(data.ui_map)
   const samples = parseSamples(data.samples)
+  const quality = parseQuality(data.quality_attributes)
+  const dataRequirements = parseDataRequirements(data.data_requirements)
   return {
     points,
     acceptance,
@@ -409,6 +537,8 @@ export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields
     references,
     uiMap,
     samples,
+    quality,
+    data: dataRequirements,
     acceptanceCriteria,
   }
 }
@@ -517,6 +647,8 @@ function validateIds(
   validateArtifactIds(spec.references, REFERENCE_ID, '查证依据', 'REF')
   validateArtifactIds(spec.uiMap, UI_MAP_ID, '功能地图', 'UI')
   validateArtifactIds(spec.samples, SAMPLE_ID, '验收样例', 'SMP')
+  validateArtifactIds(spec.quality, QUALITY_ID, '质量属性', 'QA')
+  validateArtifactIds(spec.data, DATA_ID, '数据要求', 'DATA')
 }
 
 function validateArtifactIds(
@@ -574,6 +706,36 @@ function validateReferenceLocator(
   }
 }
 
+function validateQuality(
+  attribute: QualityAttribute,
+  known: { readonly points: ReadonlySet<string>; readonly acceptance: ReadonlySet<string> },
+): void {
+  requireMappedIds(attribute, '质量属性', known)
+  if (!/\d/u.test(attribute.target)) {
+    throw new MalformedError(
+      `质量属性 ${attribute.id} 的目标必须可度量（数值与单位）：${attribute.target}`,
+    )
+  }
+}
+
+function validateDataRequirement(
+  item: DataRequirement,
+  known: { readonly points: ReadonlySet<string>; readonly acceptance: ReadonlySet<string> },
+): void {
+  requireMappedIds(item, '数据要求', known)
+  if (item.fields.length === 0) {
+    throw new MalformedError(`数据要求 ${item.id} 必须给出至少一个字段`)
+  }
+  for (const field of item.fields) {
+    if (!field.name.trim() || !field.type.trim()) {
+      throw new MalformedError(`数据要求 ${item.id} 的字段必须有名称与类型`)
+    }
+  }
+  if (item.pii && !item.retention.trim()) {
+    throw new MalformedError(`数据要求 ${item.id} 标记为个人信息时必须给出保留期与处置方式`)
+  }
+}
+
 function validateArtifacts(spec: AnalysisSpec, input: SpecValidationInput): void {
   const known = {
     points: new Set(spec.points.map((point) => point.id)),
@@ -584,6 +746,8 @@ function validateArtifacts(spec: AnalysisSpec, input: SpecValidationInput): void
     validateReferenceLocator(reference, input.projectDocExists)
   }
   for (const entry of spec.uiMap) requireMappedIds(entry, '功能地图', known)
+  for (const attribute of spec.quality) validateQuality(attribute, known)
+  for (const item of spec.data) validateDataRequirement(item, known)
   for (const sample of spec.samples) {
     if (sample.acceptanceIds.length === 0) {
       throw new MalformedError(`验收样例 ${sample.id} 必须关联至少一个验收项`)
@@ -604,14 +768,44 @@ function validateArtifacts(spec: AnalysisSpec, input: SpecValidationInput): void
   }
 }
 
-export type StageGapCode = 'samples' | 'counter_example' | 'references'
+export type StageGapCode =
+  | 'samples'
+  | 'sample_coverage'
+  | 'counter_example'
+  | 'references'
+  | 'quality_attributes'
+  | 'data_requirements'
 
 export interface StageGap {
   readonly code: StageGapCode
   readonly detail: string
 }
 
-export function requirementStageGaps(spec: AnalysisSpec): StageGap[] {
+const QUALITY_HINTS = [
+  '性能',
+  '并发',
+  '延迟',
+  '吞吐',
+  '安全',
+  '权限',
+  '加密',
+  '合规',
+  '可用性',
+  '稳定性',
+  '兼容',
+  '响应时间',
+]
+
+const DATA_HINTS = ['数据', '字段', '表结构', '保留', '导出', '隐私', '个人信息', '审计日志']
+
+function mentions(texts: readonly string[], hints: readonly string[]): boolean {
+  return texts.some((text) => hints.some((hint) => text.includes(hint)))
+}
+
+export function requirementStageGaps(
+  spec: AnalysisSpec,
+  requirementTexts: readonly string[] = [],
+): StageGap[] {
   const gaps: StageGap[] = []
   const references = spec.references
   const samples = spec.samples
@@ -628,8 +822,32 @@ export function requirementStageGaps(spec: AnalysisSpec): StageGap[] {
   if (spec.points.length > 0 && samples.length === 0) {
     gaps.push({ code: 'samples', detail: '尚未提供固定数据、操作与独立预期的验收样例' })
   }
+  const sampled = new Set(samples.flatMap((sample) => sample.acceptanceIds))
+  const unsampled = spec.acceptance.filter((item) => !sampled.has(item.id)).map((item) => item.id)
+  if (unsampled.length > 0) {
+    gaps.push({
+      code: 'sample_coverage',
+      detail: `验收项缺少固定样例：${unsampled.join('、')}`,
+    })
+  }
   if (uiMap.length > 0 && !samples.some((sample) => sample.kind === 'counter_example')) {
     gaps.push({ code: 'counter_example', detail: '界面变化的需求尚未提供能暴露错误行为的反例' })
+  }
+  const texts = [
+    ...requirementTexts,
+    ...spec.points.flatMap((point) => [point.behavior, ...point.rules]),
+  ]
+  if (spec.quality.length === 0 && mentions(texts, QUALITY_HINTS)) {
+    gaps.push({
+      code: 'quality_attributes',
+      detail: '需求提到性能、安全或可用性约束，但尚无带指标、目标与测量方式的质量属性',
+    })
+  }
+  if (spec.data.length === 0 && mentions(texts, DATA_HINTS)) {
+    gaps.push({
+      code: 'data_requirements',
+      detail: '需求涉及数据或个人信息，但尚无字段、约束与保留期的数据要求',
+    })
   }
   return gaps
 }
@@ -675,6 +893,23 @@ function validateComplete(spec: AnalysisSpec): void {
   }
 }
 
+function rejectProblemArtifacts(spec: AnalysisSpec): void {
+  const counts = [
+    spec.points.length,
+    spec.acceptance.length,
+    spec.assumptions.length,
+    spec.conflicts.length,
+    spec.references.length,
+    spec.uiMap.length,
+    spec.samples.length,
+    spec.quality.length,
+    spec.data.length,
+  ]
+  if (counts.some((count) => count > 0)) {
+    throw new MalformedError('问题输入不做业务要点拆解；只给现象与可检查的修复判据')
+  }
+}
+
 export function validateSpec(input: SpecValidationInput): void {
   const { complete, inputKind, previous } = input
   const spec: AnalysisSpec = {
@@ -682,19 +917,11 @@ export function validateSpec(input: SpecValidationInput): void {
     references: input.spec.references ?? [],
     uiMap: input.spec.uiMap ?? [],
     samples: input.spec.samples ?? [],
+    quality: input.spec.quality ?? [],
+    data: input.spec.data ?? [],
   }
   if (inputKind === 'problem') {
-    if (
-      spec.points.length > 0 ||
-      spec.acceptance.length > 0 ||
-      spec.assumptions.length > 0 ||
-      spec.conflicts.length > 0 ||
-      spec.references.length > 0 ||
-      spec.uiMap.length > 0 ||
-      spec.samples.length > 0
-    ) {
-      throw new MalformedError('问题输入不做业务要点拆解；只给现象与可检查的修复判据')
-    }
+    rejectProblemArtifacts(spec)
     return
   }
   validateIds(spec, previous, input.historicalIds ?? [])
@@ -725,6 +952,8 @@ export function analysisSpecOf(analysis: SpecBearingAnalysis): AnalysisSpec {
     references: analysis.references ?? [],
     uiMap: analysis.uiMap ?? [],
     samples: analysis.samples ?? [],
+    quality: analysis.quality ?? [],
+    data: analysis.data ?? [],
   }
 }
 
@@ -754,10 +983,19 @@ export function specChanges(
   previous: SpecBearingAnalysis | null,
   latest: SpecBearingAnalysis | null,
 ): SpecChanges {
-  const before = previous
-    ? analysisSpecOf(previous)
-    : { points: [], acceptance: [], assumptions: [] }
-  const after = latest ? analysisSpecOf(latest) : { points: [], acceptance: [], assumptions: [] }
+  const emptySpec = (): AnalysisSpec => ({
+    points: [],
+    acceptance: [],
+    assumptions: [],
+    conflicts: [],
+    references: [],
+    uiMap: [],
+    samples: [],
+    quality: [],
+    data: [],
+  })
+  const before = previous ? analysisSpecOf(previous) : emptySpec()
+  const after = latest ? analysisSpecOf(latest) : emptySpec()
   const beforePoints = byId(before.points)
   const afterPoints = byId(after.points)
   const beforeAcceptance = byId(before.acceptance)

@@ -58,6 +58,7 @@ export function requirementDetailExtras(
   reqId: string,
 ): RequirementDetailExtras {
   const analyses = repository.analyses(reqId)
+  const requirement = repository.getRequirement(reqId)
   const latest = analyses.at(-1) ?? null
   const previous = analyses.length > 1 ? (analyses.at(-2) ?? null) : null
   const analysisAttempts = repository.analysisAttempts(reqId)
@@ -98,6 +99,11 @@ export function requirementDetailExtras(
     })),
     devClarifications: repository.devClarifications(reqId),
     devClarificationCount: repository.devClarificationCount(reqId),
-    stageGaps: latest ? requirementStageGaps(analysisSpecOf(latest)) : [],
+    stageGaps: latest
+      ? requirementStageGaps(
+          analysisSpecOf(latest),
+          requirement?.versions.map((version) => version.text) ?? [],
+        )
+      : [],
   }
 }

@@ -101,18 +101,21 @@ export class AnalysisStore {
       references: analysis.references ?? [],
       uiMap: analysis.uiMap ?? [],
       samples: analysis.samples ?? [],
+      quality: analysis.quality ?? [],
+      data: analysis.data ?? [],
     }
-    if (
-      spec.points.length === 0 &&
-      spec.acceptance.length === 0 &&
-      spec.assumptions.length === 0 &&
-      spec.conflicts.length === 0 &&
-      spec.references.length === 0 &&
-      spec.uiMap.length === 0 &&
-      spec.samples.length === 0
-    ) {
-      return
-    }
+    const groups = [
+      spec.points,
+      spec.acceptance,
+      spec.assumptions,
+      spec.conflicts,
+      spec.references,
+      spec.uiMap,
+      spec.samples,
+      spec.quality,
+      spec.data,
+    ]
+    if (groups.every((group) => group.length === 0)) return
     this.db
       .prepare(
         `INSERT INTO requirement_analysis_specs (req_id, analysis_version, spec_json)
@@ -176,6 +179,24 @@ export class AnalysisStore {
             expected: item.expected,
             observe_at: item.observeAt,
           })),
+          quality_attributes: spec.quality.map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            metric: item.metric,
+            target: item.target,
+            measure: item.measure,
+            point_ids: item.pointIds,
+            acceptance_ids: item.acceptanceIds,
+          })),
+          data_requirements: spec.data.map((item) => ({
+            id: item.id,
+            entity: item.entity,
+            fields: item.fields,
+            retention: item.retention,
+            pii: item.pii,
+            point_ids: item.pointIds,
+            acceptance_ids: item.acceptanceIds,
+          })),
         }),
       )
   }
@@ -196,6 +217,8 @@ export class AnalysisStore {
           references: parsed.references,
           uiMap: parsed.uiMap,
           samples: parsed.samples,
+          quality: parsed.quality,
+          data: parsed.data,
         }
         return [num(row, 'analysis_version'), spec]
       }),
@@ -241,6 +264,8 @@ export class AnalysisStore {
               references: spec.references,
               uiMap: spec.uiMap,
               samples: spec.samples,
+              quality: spec.quality,
+              data: spec.data,
             }
           : {}),
         clarifications: parseStringList(text(row, 'clarifications')),

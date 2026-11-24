@@ -1069,6 +1069,15 @@ window.__ModuleLoader__.load({
       'detail.specNeedsConfirm': '待确认',
       'detail.specReferences': '查证依据',
       'detail.specUiMap': '功能地图与界面',
+      'detail.specQuality': '质量属性',
+      'detail.specNoQuality': '没有记录非功能约束',
+      'detail.specQualityTarget': '目标',
+      'detail.specQualityMeasure': '测量',
+      'detail.specData': '数据要求',
+      'detail.specNoData': '没有记录数据变化',
+      'detail.specDataFields': '字段',
+      'detail.specDataRetention': '保留',
+      'detail.specDataPii': '个人信息',
       'detail.specSamples': '验收样例',
       'detail.specGaps': '待补材料',
       'detail.specRefVersion': '适用版本',
@@ -1821,6 +1830,15 @@ window.__ModuleLoader__.load({
       'detail.specNeedsConfirm': 'Needs confirmation',
       'detail.specReferences': 'Evidence and references',
       'detail.specUiMap': 'Functional map and UI',
+      'detail.specQuality': 'Quality attributes',
+      'detail.specNoQuality': 'No non-functional constraints recorded',
+      'detail.specQualityTarget': 'Target',
+      'detail.specQualityMeasure': 'Measure',
+      'detail.specData': 'Data requirements',
+      'detail.specNoData': 'No data changes recorded',
+      'detail.specDataFields': 'Fields',
+      'detail.specDataRetention': 'Retention',
+      'detail.specDataPii': 'Personal data',
       'detail.specSamples': 'Acceptance samples',
       'detail.specGaps': 'Missing material',
       'detail.specRefVersion': 'Applies to',
@@ -3831,6 +3849,69 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function qualityView(t, analysis) {
+      const items = Array.isArray(analysis.quality) ? analysis.quality : []
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'quality' },
+        h('div', { className: 'flb-label' }, t('detail.specQuality')),
+        items.length === 0
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoQuality'))
+          : items.map((item) =>
+              h(
+                'div',
+                { key: item.id },
+                `${item.id} · ${item.kind} · ${item.metric}`,
+                h('div', null, `${t('detail.specQualityTarget')}：${item.target}`),
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specQualityMeasure')}：${item.measure}`,
+                ),
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specRefMapped')}：${[...(item.pointIds || []), ...(item.acceptanceIds || [])].join('、')}`,
+                ),
+              ),
+            ),
+      )
+    }
+
+    function dataView(t, analysis) {
+      const items = Array.isArray(analysis.data) ? analysis.data : []
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'data' },
+        h('div', { className: 'flb-label' }, t('detail.specData')),
+        items.length === 0
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoData'))
+          : items.map((item) =>
+              h(
+                'div',
+                { key: item.id },
+                `${item.id} · ${item.entity}`,
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specDataFields')}：${(item.fields || []).map((field) => `${field.name}:${field.type}${field.constraints ? `(${field.constraints})` : ''}`).join('、')}`,
+                ),
+                item.retention
+                  ? h('div', null, `${t('detail.specDataRetention')}：${item.retention}`)
+                  : null,
+                item.pii
+                  ? h('div', { className: 'flb-block-warn' }, t('detail.specDataPii'))
+                  : null,
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${t('detail.specRefMapped')}：${[...(item.pointIds || []), ...(item.acceptanceIds || [])].join('、')}`,
+                ),
+              ),
+            ),
+      )
+    }
+
     function pointView(t, point, acceptance) {
       const items = acceptance.filter(
         (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
@@ -3920,6 +4001,8 @@ window.__ModuleLoader__.load({
         ...points.map((point) => pointView(t, point, acceptance)),
         referenceView(t, analysis),
         uiMapView(t, analysis),
+        qualityView(t, analysis),
+        dataView(t, analysis),
         sampleView(t, analysis),
         Array.isArray(data.stageGaps) && data.stageGaps.length > 0
           ? h(

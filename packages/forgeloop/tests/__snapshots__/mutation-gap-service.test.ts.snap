@@ -51,6 +51,8 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "createdAt": "TIME",
     "delivered": [],
     "deployment": null,
+    "devClarificationCount": 0,
+    "devClarifications": [],
     "documents": [
       {
         "bytes": 12,
