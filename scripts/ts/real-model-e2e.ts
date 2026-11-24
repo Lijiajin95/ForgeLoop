@@ -87,6 +87,19 @@ const REQUIREMENT =
     '验证异常分支时，请用自建的临时目录复制该测试命令的行为，不要读取本仓库当前状态。',
   ].join('\n')
 
+function submitPrompt(): string {
+  if (SCOPE !== 'requirement') {
+    return `只调用一次工具 forgeloop_submit_requirement 提交下面的需求原文；不要修改任何文件，也不要调用其他工具。\n\n${REQUIREMENT}`
+  }
+  return [
+    '先调用一次工具 forgeloop_submit_requirement 提交下面的需求原文。',
+    '提交成功后，立即调用 bash 工具执行命令 sleep 480，并把该次调用的 timeoutMs 设为 600000，等待命令自然结束。',
+    '这条命令只用于保持宿主进程存活，让系统完成自动分析。除这两个工具外不要调用其他工具，也不要修改任何文件。',
+    '',
+    REQUIREMENT,
+  ].join('\n')
+}
+
 interface RequirementRow {
   readonly req_id: string
   readonly status: string
@@ -811,10 +824,7 @@ async function main(): Promise<void> {
 
     const startedAt = new Date().toISOString()
     const [submitCommand, submitArgs] = dshCommand(
-      launchArgs(HEADLESS_PROFILE, [
-        '--json',
-        `只调用一次工具 forgeloop_submit_requirement 提交下面的需求原文；不要修改任何文件，也不要调用其他工具。\n\n${REQUIREMENT}`,
-      ]),
+      launchArgs(HEADLESS_PROFILE, ['--json', submitPrompt()]),
     )
     const submitted = spawnSync(submitCommand, submitArgs, {
       cwd: ROOT,
