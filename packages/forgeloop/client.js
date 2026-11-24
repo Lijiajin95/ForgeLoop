@@ -1052,6 +1052,9 @@ window.__ModuleLoader__.load({
       'detail.specScope': '范围与待决定事项',
       'detail.specPoints': '业务要点与验收',
       'detail.specAssumptions': '假设与依据',
+      'detail.specChangeImpact': '变更影响',
+      'detail.specChangeNone': '没有结构性变化，无需重新验证',
+      'detail.specChangeInvalid': '需要重新验证',
       'detail.specChanges': '本次澄清后的变化',
       'detail.specHistory': '分析与澄清历史',
       'detail.specFirst': '首次结构化说明。',
@@ -1813,6 +1816,9 @@ window.__ModuleLoader__.load({
       'detail.specScope': 'Scope and decisions needed',
       'detail.specPoints': 'Business points and acceptance',
       'detail.specAssumptions': 'Assumptions and basis',
+      'detail.specChangeImpact': 'Change impact',
+      'detail.specChangeNone': 'No structural change; no revalidation needed',
+      'detail.specChangeInvalid': 'Revalidation required',
       'detail.specChanges': 'Changes after this clarification',
       'detail.specHistory': 'Analysis and clarification history',
       'detail.specFirst': 'First structured specification.',
@@ -4027,6 +4033,17 @@ window.__ModuleLoader__.load({
             )
           : null,
         h('div', { className: 'flb-label', key: 'changes-label' }, t('detail.specChanges')),
+        data.changeImpact
+          ? h(
+              'div',
+              { className: 'flb-muted', key: 'change-impact' },
+              `${t('detail.specChangeImpact')}：${
+                data.changeImpact.kind === 'none'
+                  ? t('detail.specChangeNone')
+                  : `${t('detail.specChangeInvalid')}（${(data.changeImpact.changed || []).join('、')}）`
+              }`,
+            )
+          : null,
         specChangeView(t, data.specChanges, history.length > 1),
         clarificationHistoryView(t, data.clarificationHistory),
         history.length > 1

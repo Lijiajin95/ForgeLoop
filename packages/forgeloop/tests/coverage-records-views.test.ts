@@ -835,6 +835,8 @@ describe('requirement detail extras', () => {
       clarificationHistory: { questions: [], answers: [] },
       analysisActivity: [],
       verificationActivity: [],
+      devClarifications: [],
+      devClarificationCount: 0,
       stageGaps: [],
       specChanges: {
         addedPoints: [],
@@ -849,6 +851,7 @@ describe('requirement detail extras', () => {
         addedAssumptions: [],
         changedAssumptions: [],
       },
+      changeImpact: { kind: 'none', changed: [] },
     })
   })
 
@@ -1038,6 +1041,9 @@ describe('requirement detail extras', () => {
       ],
     })
     const stub = stubRepository({
+      getRequirement: () => null,
+      devClarifications: () => [],
+      devClarificationCount: () => 0,
       analyses: () => [undefined, latest],
       clarificationQuestions: () => [],
       clarificationAnswers: () => [],

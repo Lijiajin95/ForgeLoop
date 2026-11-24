@@ -1037,6 +1037,55 @@ export function specChanges(
     changedAssumptions: assumptions.changed,
   }
 }
+export type SpecChangeKind = 'none' | 'invalid'
+
+export interface SpecChangeImpact {
+  readonly kind: SpecChangeKind
+  readonly changed: readonly string[]
+}
+
+function changeGroups(spec: AnalysisSpec): Array<[string, readonly { readonly id: string }[]]> {
+  return [
+    ['BP', spec.points],
+    ['AC', spec.acceptance],
+    ['AS', spec.assumptions],
+    ['REF', spec.references],
+    ['UI', spec.uiMap],
+    ['SMP', spec.samples],
+    ['QA', spec.quality],
+    ['DATA', spec.data],
+  ]
+}
+
+function asSpec(value: SpecBearingAnalysis | AnalysisSpec): AnalysisSpec {
+  return 'points' in value ? value : analysisSpecOf(value)
+}
+
+export function classifySpecChange(
+  previous: SpecBearingAnalysis | AnalysisSpec | null,
+  latest: SpecBearingAnalysis | AnalysisSpec | null,
+): SpecChangeImpact {
+  if (!latest) return { kind: 'none', changed: [] }
+  const after = changeGroups(asSpec(latest))
+  if (!previous) {
+    return { kind: 'invalid', changed: after.flatMap(([, items]) => items.map((item) => item.id)) }
+  }
+  const before = new Map(changeGroups(asSpec(previous)))
+  const changed: string[] = []
+  for (const [prefix, items] of after) {
+    const prior = new Map((before.get(prefix) ?? []).map((item) => [item.id, JSON.stringify(item)]))
+    for (const item of items) {
+      if (prior.get(item.id) !== JSON.stringify(item)) changed.push(item.id)
+    }
+    const current = new Set(items.map((item) => item.id))
+    for (const id of prior.keys()) {
+      if (!current.has(id)) changed.push(id)
+    }
+  }
+  const unique = [...new Set(changed)]
+  return { kind: unique.length > 0 ? 'invalid' : 'none', changed: unique }
+}
+
 export interface PlanCoverageIssue {
   readonly code: 'unknown_point' | 'missing_point'
   readonly detail: string

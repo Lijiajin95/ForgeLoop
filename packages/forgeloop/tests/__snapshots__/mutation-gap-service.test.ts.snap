@@ -43,6 +43,10 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     "businessReview": null,
     "candidate": null,
     "candidateBuild": null,
+    "changeImpact": {
+      "changed": [],
+      "kind": "none",
+    },
     "clarificationHistory": {
       "answers": [],
       "questions": [],

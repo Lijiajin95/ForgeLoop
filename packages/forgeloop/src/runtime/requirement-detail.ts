@@ -1,6 +1,11 @@
 import type { Repository } from '../records/repository.js'
 import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analysis.js'
-import { specChanges, type SpecChanges } from '../domain/spec.js'
+import {
+  classifySpecChange,
+  specChanges,
+  type SpecChangeImpact,
+  type SpecChanges,
+} from '../domain/spec.js'
 import { analysisSpecOf, requirementStageGaps, type StageGap } from '../domain/spec.js'
 
 export interface RequirementDetailExtras {
@@ -10,6 +15,8 @@ export interface RequirementDetailExtras {
     readonly answers: readonly ClarificationAnswer[]
   }
   readonly specChanges: SpecChanges
+  /** 最近两次分析的结构性差异分类：none 表示没有可验收变化，invalid 需要重新验证。 */
+  readonly changeImpact: SpecChangeImpact
   readonly businessContext: ReturnType<Repository['businessContextChanges']>
   readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
   readonly documents: ReturnType<Repository['documentsOf']>
@@ -70,6 +77,7 @@ export function requirementDetailExtras(
       answers: repository.clarificationAnswers(reqId),
     },
     specChanges: specChanges(previous, latest),
+    changeImpact: classifySpecChange(previous, latest),
     businessContext: repository.businessContextChanges(reqId),
     analysisInvalidations: repository.analysisInvalidations(reqId),
     documents: repository.documentsOf(reqId),
