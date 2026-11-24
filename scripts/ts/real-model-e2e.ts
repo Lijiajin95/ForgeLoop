@@ -54,6 +54,12 @@ const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEO
 const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_MS ?? 240_000)
 /** 单回合上限：真实模型规划/实现可能超过 10 分钟，默认放宽到 30 分钟。 */
 const TURN_TIMEOUT_SECONDS = Number(process.env.FORGELOOP_REAL_MODEL_TURN_TIMEOUT_SECONDS ?? 1800)
+/**
+ * 验收范围：`delivery` 走完整研发闭环；`requirement` 只验需求阶段（分析、产物、准入）。
+ * 后者用于宿主缺少 agent preset 能力时仍可稳定验证需求阶段，不把“研发被宿主能力阻塞”当成需求失败。
+ */
+const SCOPE =
+  process.env.FORGELOOP_REAL_MODEL_SCOPE?.trim() === 'requirement' ? 'requirement' : 'delivery'
 /** E2E 的研发尝试次数：有界，避免真实模型判断异常时空转到超时；默认 3。 */
 const MAX_TASK_ATTEMPTS = Number(process.env.FORGELOOP_REAL_MODEL_MAX_TASK_ATTEMPTS ?? 3)
 /** 失败轮次上限：避免业务终审重复阻断时无限重建候选。 */
@@ -279,13 +285,99 @@ async function poll(
   )
 }
 
+interface RequirementStageSnapshot {
+  readonly requirement: RequirementRow
+  readonly admission: { decision: string; code: string; reason: string; createdAt: string } | null
+  readonly analysis: {
+    analysisVersion: number
+    goal: string
+    promptVersion: string
+    model: string
+    createdAt: string
+  } | null
+  readonly spec: Record<string, unknown> | null
+}
+
+async function pollRequirementStage(
+  dbPath: string,
+  startedAt: string,
+): Promise<RequirementStageSnapshot> {
+  const deadline = Date.now() + TIMEOUT_MS
+  let lastLine = ''
+  while (Date.now() < deadline) {
+    if (!existsSync(dbPath)) {
+      await sleep(2_000)
+      continue
+    }
+    const db = new DatabaseSync(dbPath, { readOnly: true })
+    try {
+      const requirement = queryOne<RequirementRow>(
+        db,
+        'SELECT req_id, status, source, submitted_by, blocked_reason FROM requirements ORDER BY created_at DESC LIMIT 1',
+      )
+      if (requirement) {
+        const admission = queryOne<{
+          decision: string
+          code: string
+          reason: string
+          createdAt: string
+        }>(
+          db,
+          'SELECT decision, code, reason, created_at AS createdAt FROM requirement_admissions WHERE req_id = ? ORDER BY created_at DESC LIMIT 1',
+          [requirement.req_id],
+        )
+        const analysis = queryOne<{
+          analysisVersion: number
+          goal: string
+          promptVersion: string
+          model: string
+          createdAt: string
+        }>(
+          db,
+          'SELECT analysis_version AS analysisVersion, goal, prompt_version AS promptVersion, model, created_at AS createdAt FROM requirement_analyses WHERE req_id = ? ORDER BY analysis_version DESC LIMIT 1',
+          [requirement.req_id],
+        )
+        const specRow = analysis
+          ? queryOne<{ specJson: string }>(
+              db,
+              'SELECT spec_json AS specJson FROM requirement_analysis_specs WHERE req_id = ? AND analysis_version = ?',
+              [requirement.req_id, analysis.analysisVersion],
+            )
+          : undefined
+        const spec = specRow ? (JSON.parse(specRow.specJson) as Record<string, unknown>) : null
+        const line = JSON.stringify({
+          status: requirement.status,
+          admission: admission?.decision ?? null,
+          analysis: analysis?.analysisVersion ?? null,
+          promptVersion: analysis?.promptVersion ?? null,
+          points: Array.isArray(spec?.business_points) ? spec.business_points.length : 0,
+        })
+        if (line !== lastLine) {
+          console.log(`[real-model-e2e] 需求阶段：${line}`)
+          lastLine = line
+        }
+        if (requirement.status === 'cancelled' || requirement.status === 'rejected') {
+          throw new Error(`需求停在 ${requirement.status}：${line}`)
+        }
+        if (admission && analysis) {
+          return { requirement, admission, analysis, spec }
+        }
+      }
+    } finally {
+      db.close()
+    }
+    await sleep(2_000)
+  }
+  throw new Error(
+    `等待需求阶段超时（${Math.round(TIMEOUT_MS / 1000)} 秒）；需求创建于 ${startedAt}，最后状态：${lastLine}`,
+  )
+}
+
 interface DeploymentFixture {
   readonly toolPath: string
   readonly targetDir: string
   readonly port: number
-}
-
-/** 真实运行体：从制品里加载 app.mjs，用 /identity 暴露启动时缓存的介质摘要。 */
+} /** 真实运行体：从制品里加载 app.mjs，用 /identity 暴露启动时缓存的介质摘要。 */
 const SERVER_SOURCE = `import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
@@ -710,6 +802,58 @@ async function main(): Promise<void> {
       throw new Error(
         `真实模型没有调用 forgeloop_submit_requirement；输出：${(submitted.stdout || submitted.stderr).slice(-800)}`,
       )
+    }
+
+    if (SCOPE === 'requirement') {
+      const stage = await pollRequirementStage(dbPath, startedAt)
+      if (stage.requirement.source !== 'dsh-tool:submit_requirement') {
+        throw new Error(`需求来源未按工具记录：${stage.requirement.source}`)
+      }
+      if (!stage.admission || stage.admission.decision !== 'admit') {
+        throw new Error(`需求没有被系统准入：${JSON.stringify(stage.admission)}`)
+      }
+      if (!stage.analysis || stage.analysis.promptVersion !== 'analysis-v6') {
+        throw new Error(`分析未使用 analysis-v6：${JSON.stringify(stage.analysis)}`)
+      }
+      const points = Array.isArray(stage.spec?.business_points)
+        ? stage.spec.business_points.length
+        : 0
+      if (points === 0) throw new Error('分析缺少业务要点')
+      const counts = {
+        points,
+        acceptance: Array.isArray(stage.spec?.acceptance_items)
+          ? stage.spec.acceptance_items.length
+          : 0,
+        references: Array.isArray(stage.spec?.references) ? stage.spec.references.length : 0,
+        uiMap: Array.isArray(stage.spec?.ui_map) ? stage.spec.ui_map.length : 0,
+        samples: Array.isArray(stage.spec?.samples) ? stage.spec.samples.length : 0,
+        counterExamples: Array.isArray(stage.spec?.samples)
+          ? (stage.spec.samples as Array<{ kind?: string }>).filter(
+              (sample) => sample.kind === 'counter_example',
+            ).length
+          : 0,
+      }
+      const reports = join(ROOT, 'reports')
+      mkdirSync(reports, { recursive: true })
+      writeFileSync(
+        join(reports, 'real-model-requirement.json'),
+        `${JSON.stringify(
+          {
+            scope: 'requirement',
+            requirement: stage.requirement,
+            admission: stage.admission,
+            analysis: stage.analysis,
+            counts,
+            spec: stage.spec,
+          },
+          null,
+          2,
+        )}\n`,
+      )
+      console.log(
+        `[real-model-e2e] OK：需求阶段完成（准入 + analysis-v6 分析）；产物 ${JSON.stringify(counts)}`,
+      )
+      return
     }
 
     const result = await poll(dbPath, startedAt)
