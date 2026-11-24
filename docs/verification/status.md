@@ -10398,3 +10398,34 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 - 尚未把分类结果接入自动重排：`invalid` 目前不会自动作废旧计划或候选，失效仍由版本修订触发；
 - 未实现变更事件 `CR-n` 的独立记录与影响清单导出。
+
+## 282. 假设可测试化：类别、验证方法与通过阈值（2026-11-24）
+
+按 Continuous Discovery Habits 的假设测试做法，把“尚未验证的推断”从一句话扩展成可测试的记录。
+代码改动在 worktree `assumption-tests` 完成。
+
+### 282.1 新增字段与规则
+
+- `AS-n` 新增可选字段：`category`（desirability／usability／feasibility／viability／ethical）、
+  `test_method`、`success_threshold`；
+- 硬约束：类别必须是枚举值；验证方法与通过阈值必须成对出现，只给一边即拒绝该次分析；
+- 软约束：假设缺少验证计划时，`stageGaps` 新增 `assumption_tests` 逐条列出编号，不改变准入；
+- `needs_confirmation=true` 仍然阻断准入（既有规则不变），测试计划不能替代所有者确认。
+
+### 282.2 实现
+
+- 解析、存储（`spec_json` 的 `assumptions`）、详情展示与提示词（`analysis-v8`）同步；
+- 详情在假设下展示类别、验证方式与通过阈值；
+- 不新增表、不新增人工节点。
+
+### 282.3 验证
+
+- `tests/engineering-spec.test.ts` 新增 2 项：字段解析与成对校验、缺少验证计划的缺口；
+- 提示词快照与版本断言更新；需求详情快照涉及假设的用例通过；
+- 已运行 typecheck、eslint、`make check-static` 与相关测试文件；
+- 未运行全量 `make commit-check`（本机既有计时类不稳定测试仍存在）；未跑真实模型 v8。
+
+### 282.4 未完成
+
+- 假设的验证状态（untested／validated／invalidated）与证据绑定尚未实现；
+- `CR-n` 变更事件、追踪矩阵闭环仍是后续批次。

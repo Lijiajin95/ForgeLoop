@@ -1069,6 +1069,9 @@ window.__ModuleLoader__.load({
       'detail.specDecision': '需要决定',
       'detail.specNewQuestions': '新待澄清',
       'detail.specAssumption': '假设',
+      'detail.specAssumptionCategory': '类别',
+      'detail.specAssumptionTest': '验证',
+      'detail.specAssumptionThreshold': '通过阈值',
       'detail.specNeedsConfirm': '待确认',
       'detail.specReferences': '查证依据',
       'detail.specUiMap': '功能地图与界面',
@@ -1833,6 +1836,9 @@ window.__ModuleLoader__.load({
       'detail.specDecision': 'Decision needed',
       'detail.specNewQuestions': 'New clarifications',
       'detail.specAssumption': 'Assumption',
+      'detail.specAssumptionCategory': 'Category',
+      'detail.specAssumptionTest': 'Test',
+      'detail.specAssumptionThreshold': 'Success threshold',
       'detail.specNeedsConfirm': 'Needs confirmation',
       'detail.specReferences': 'Evidence and references',
       'detail.specUiMap': 'Functional map and UI',
@@ -4028,6 +4034,20 @@ window.__ModuleLoader__.load({
                   'div',
                   { key: item.id },
                   `${item.id} · ${item.basis} · ${item.statement} · ${item.impact} · ${item.needsConfirmation ? t('detail.specNeedsConfirm') : t('detail.specWorkingAssumption')}`,
+                  item.category
+                    ? h(
+                        'div',
+                        { className: 'flb-muted' },
+                        `${t('detail.specAssumptionCategory')}：${item.category}`,
+                      )
+                    : null,
+                  item.testMethod
+                    ? h(
+                        'div',
+                        { className: 'flb-muted' },
+                        `${t('detail.specAssumptionTest')}：${item.testMethod}；${t('detail.specAssumptionThreshold')}：${item.successThreshold}`,
+                      )
+                    : null,
                 ),
               ),
             )

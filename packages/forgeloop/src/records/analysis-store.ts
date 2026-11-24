@@ -141,6 +141,9 @@ export class AnalysisStore {
             source: item.source,
             impact: item.impact,
             needs_confirmation: item.needsConfirmation,
+            ...(item.category ? { category: item.category } : {}),
+            test_method: item.testMethod,
+            success_threshold: item.successThreshold,
           })),
           conflicts: spec.conflicts.map((item) => ({
             existing_req_id: item.existingReqId,

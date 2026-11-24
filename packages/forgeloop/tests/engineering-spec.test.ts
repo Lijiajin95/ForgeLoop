@@ -206,6 +206,81 @@ describe('engineering spec artifacts', () => {
     expect(complete.map((gap) => gap.code)).not.toContain('data_requirements')
   })
 
+  it('parses assumption test plans and rejects unpaired thresholds', () => {
+    const fields = parsed({
+      assumptions: [
+        {
+          id: 'AS-1',
+          statement: '店长愿意用筛选替代手工查找',
+          basis: 'inference',
+          source: '历史工单观察',
+          impact: '不成立则筛选价值不足',
+          needs_confirmation: false,
+          category: 'desirability',
+          test_method: '访谈 5 位店长',
+          success_threshold: '至少 4 人选择新流程',
+        },
+      ],
+    })
+    expect(fields.assumptions[0]).toMatchObject({
+      id: 'AS-1',
+      category: 'desirability',
+      testMethod: '访谈 5 位店长',
+      successThreshold: '至少 4 人选择新流程',
+    })
+    expect(() =>
+      parsed({
+        assumptions: [
+          {
+            id: 'AS-1',
+            statement: '假设',
+            basis: 'inference',
+            source: '推断',
+            impact: '范围',
+            needs_confirmation: false,
+            test_method: '访谈 5 位店长',
+          },
+        ],
+      }),
+    ).toThrow('必须同时给出通过阈值')
+    expect(() =>
+      parsed({
+        assumptions: [
+          {
+            id: 'AS-1',
+            statement: '假设',
+            basis: 'inference',
+            source: '推断',
+            impact: '范围',
+            needs_confirmation: false,
+            category: 'confidence',
+          },
+        ],
+      }),
+    ).toThrow('category 必须是 desirability')
+  })
+
+  it('reports assumptions without a test plan as a stage gap', () => {
+    const fields = parsed({
+      assumptions: [
+        {
+          id: 'AS-1',
+          statement: '店长愿意用筛选',
+          basis: 'inference',
+          source: '推断',
+          impact: '价值',
+          needs_confirmation: false,
+        },
+      ],
+    })
+    const gaps = requirementStageGaps({
+      ...specOf(),
+      assumptions: fields.assumptions,
+    })
+    const gap = gaps.find((item) => item.code === 'assumption_tests')
+    expect(gap?.detail).toContain('AS-1')
+  })
+
   it('keeps quality attributes and data requirements across record and read', () => {
     const dir = mkdtempSync(join(tmpdir(), 'forgeloop-engineering-spec-'))
     const database = Database.open(join(dir, 'records.sqlite'))

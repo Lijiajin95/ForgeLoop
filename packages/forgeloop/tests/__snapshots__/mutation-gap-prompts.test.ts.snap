@@ -68,7 +68,10 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
       "basis": "inference 或 external_material",
       "source": "推断依据或外部资料地址",
       "impact": "若不成立会影响什么范围、取舍或授权边界",
-      "needs_confirmation": true
+      "needs_confirmation": true,
+      "category": "desirability、usability、feasibility、viability 或 ethical；没有就省略",
+      "test_method": "怎么验证这条假设，例如 访谈 5 位店长、灰度一週观察取消率；与 success_threshold 成对",
+      "success_threshold": "什么算通过，必须可判定，例如 5 人中至少 4 人选择新流程"
     }
   ],
   "conflicts": [
@@ -188,6 +191,7 @@ exports[`prompt snapshots > keeps the full rendered prompts stable > analysis 1`
 - 质量属性：需求涉及性能、并发、安全、权限、可用性、兼容性或合规时，必须给 quality_attributes；每条要有测什么（metric）、含数值与单位的目标（target）、测量方式与位置（measure），并关联 BP 或 AC。没有非功能约束时留空数组。
 - 数据要求：需求涉及实体、字段、保留期、导出或个人信息时，必须给 data_requirements；每个字段有名称、类型与约束；pii=true 时必须写保留期与到期处置。没有数据变化时留空数组。
 - 可度量优先：凡是能写成阈值、计数的目标都写数值；禁止用“快”“稳定”“友好”“尽量”替代可观察结果或数值目标。
+- 假设必须可测试：每条 assumption 尽量给 category 与成对的 test_method／success_threshold；needs_confirmation=true 的假设仍会阻断准入，必须由所有者确认，不能写成已确认规则。
 - 重新分析时保留上一次结构化说明中仍然成立的编号与内容；不要重排 BP/AC/AS 编号，新编号必须大于历史最大编号。已回答或已解决的澄清不得被无依据推翻。
 - 从业务场景出发理解需求：先写清谁在什么情况下做什么、成功与失败分别意味着什么，再归纳业务规则、异常与边界、非目标。
 - 识别行业与业务背景：如果需求暴露了新的行业、业务目标、术语、约束或假设，把归并后的完整文档放进 business_context.document 并置 changed=true（建议小节：行业与业务背景、业务目标与术语、约束与假设、更新记录）。没有变化时 changed=false 且 document 为空字符串。问题输入通常不带来新的业务背景，确实暴露新约束时才更新。

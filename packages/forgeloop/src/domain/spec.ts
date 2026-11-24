@@ -39,6 +39,17 @@ export interface AcceptanceCriterion {
   readonly then: string
 }
 
+export type AssumptionCategory =
+  'desirability' | 'usability' | 'feasibility' | 'viability' | 'ethical'
+
+const ASSUMPTION_CATEGORIES: readonly AssumptionCategory[] = [
+  'desirability',
+  'usability',
+  'feasibility',
+  'viability',
+  'ethical',
+]
+
 export interface Assumption {
   readonly id: string
   readonly statement: string
@@ -46,6 +57,9 @@ export interface Assumption {
   readonly source: string
   readonly impact: string
   readonly needsConfirmation: boolean
+  readonly category?: AssumptionCategory | undefined
+  readonly testMethod: string
+  readonly successThreshold: string
 }
 
 export interface CommitmentConflict {
@@ -289,6 +303,26 @@ function parseAssumption(value: unknown, index: number): Assumption {
   if (typeof needsConfirmation !== 'boolean') {
     throw new MalformedError(`分析字段 ${field}.needs_confirmation 必须是布尔值`)
   }
+  const rawCategory = data.category
+  let category: AssumptionCategory | undefined
+  if (typeof rawCategory === 'string' && rawCategory.trim()) {
+    const found = ASSUMPTION_CATEGORIES.find((candidate) => candidate === rawCategory)
+    if (!found) {
+      throw new MalformedError(
+        `分析字段 ${field}.category 必须是 desirability、usability、feasibility、viability 或 ethical`,
+      )
+    }
+    category = found
+  }
+  const testMethod = typeof data.test_method === 'string' ? data.test_method.trim() : ''
+  const successThreshold =
+    typeof data.success_threshold === 'string' ? data.success_threshold.trim() : ''
+  if (testMethod && !successThreshold) {
+    throw new MalformedError(`${field} 给出验证方法时必须同时给出通过阈值`)
+  }
+  if (successThreshold && !testMethod) {
+    throw new MalformedError(`${field} 给出通过阈值时必须同时给出验证方法`)
+  }
   return {
     id: nonEmpty(data.id, `${field}.id`),
     statement: nonEmpty(data.statement, `${field}.statement`),
@@ -296,6 +330,9 @@ function parseAssumption(value: unknown, index: number): Assumption {
     source: nonEmpty(data.source, `${field}.source`),
     impact: nonEmpty(data.impact, `${field}.impact`),
     needsConfirmation,
+    category,
+    testMethod,
+    successThreshold,
   }
 }
 
@@ -775,6 +812,7 @@ export type StageGapCode =
   | 'references'
   | 'quality_attributes'
   | 'data_requirements'
+  | 'assumption_tests'
 
 export interface StageGap {
   readonly code: StageGapCode
@@ -847,6 +885,15 @@ export function requirementStageGaps(
     gaps.push({
       code: 'data_requirements',
       detail: '需求涉及数据或个人信息，但尚无字段、约束与保留期的数据要求',
+    })
+  }
+  const untested = spec.assumptions
+    .filter((assumption) => !assumption.testMethod || !assumption.successThreshold)
+    .map((assumption) => assumption.id)
+  if (untested.length > 0) {
+    gaps.push({
+      code: 'assumption_tests',
+      detail: `假设缺少验证方法与通过阈值：${untested.join('、')}`,
     })
   }
   return gaps
