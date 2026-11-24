@@ -50,6 +50,24 @@ describe('Docker verification inputs', () => {
     expect(settings.modelPatch).toBe('/test/provider.yml')
   })
 
+  it('registers every documented Qwen token-plan host for a Qwen test key', () => {
+    const settings = verificationSettings('real-model-e2e', {
+      FORGELOOP_TEST_QWEN_TOKEN_PLAN_CN_API_KEY: 'qwen-key',
+      FORGELOOP_TEST_MODEL_PATCH: '/test/provider.yml',
+    })
+    expect(settings.modelHosts).toEqual([
+      'token-plan.cn-beijing.maas.aliyuncs.com',
+      'token-plan.maas.qianwenaiapi.com',
+    ])
+    for (const host of settings.modelHosts) {
+      expect(modelHostFor(`${host}:443`, settings.modelHosts)).toBe(host)
+    }
+    expect(settings.env).toEqual({
+      QWEN_TOKEN_PLAN_CN_API_KEY: 'qwen-key',
+      FORGELOOP_REAL_MODEL: '1',
+    })
+  })
+
   it('refuses to fall back to ordinary model credentials or inspect production records', () => {
     expect(() =>
       verificationSettings('verify-e2e', { DEEPSEEK_API_KEY: 'production-key' }),

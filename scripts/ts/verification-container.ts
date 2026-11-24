@@ -11,6 +11,11 @@ interface VerificationSuite {
   readonly hostPathOption?: string
 }
 
+export const QWEN_TOKEN_PLAN_CN_HOSTS: readonly string[] = [
+  'token-plan.cn-beijing.maas.aliyuncs.com',
+  'token-plan.maas.qianwenaiapi.com',
+]
+
 export const VERIFICATION_TARGETS = {
   e2e: { scripts: ['e2e', 'e2e-board'], model: 'none', candidate: true },
   'e2e-board': { scripts: ['e2e-board'], model: 'none', candidate: true },
@@ -116,7 +121,7 @@ export function verificationSettings(
     }
     if (qwen) {
       env.QWEN_TOKEN_PLAN_CN_API_KEY = qwen
-      modelHosts.push('token-plan.cn-beijing.maas.aliyuncs.com')
+      modelHosts.push(...QWEN_TOKEN_PLAN_CN_HOSTS)
     }
   }
   return {

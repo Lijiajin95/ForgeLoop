@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
+import { QWEN_TOKEN_PLAN_CN_HOSTS } from './verification-container.ts'
 
 export function modelHostFor(
   authority: string | undefined,
@@ -23,7 +24,7 @@ export function egressLine(
 function start(): void {
   const hosts = (process.env.FORGELOOP_MODEL_HOSTS ?? '').split(',').filter(Boolean)
   const password = process.env.FORGELOOP_MODEL_PROXY_PASSWORD
-  const approved = new Set(['api.deepseek.com', 'token-plan.cn-beijing.maas.aliyuncs.com'])
+  const approved = new Set(['api.deepseek.com', ...QWEN_TOKEN_PLAN_CN_HOSTS])
   if (!password || hosts.length === 0 || hosts.some((host) => !approved.has(host))) {
     throw new Error('模型代理需要本轮授权令牌和已登记的模型域名')
   }
