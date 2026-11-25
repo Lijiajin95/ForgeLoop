@@ -234,6 +234,9 @@ describe('transient failure classification', () => {
     ]) {
       expect(classifyFailure(reason), reason).toBe('fatal')
     }
+    expect(classifyFailure(''), '空原因').toBe('fatal')
+    expect(classifyFailure('  '), '纯空白原因').toBe('fatal')
+    expect(classifyFailure('network error'), 'network error').toBe('transient')
   })
 
   it('retries a transient model turn without spending a task attempt', async () => {

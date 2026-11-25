@@ -157,6 +157,43 @@ describe('requirement review', () => {
         }),
       ),
     ).toThrow('必须说明理由')
+    expect(() =>
+      parseReviewDraft(
+        JSON.stringify({
+          verdict: 'fail',
+          summary: '失败',
+          checks: JSON.parse(PASSING).checks,
+        }),
+      ),
+    ).toThrow('必须至少有一个 fail 检查项')
+    expect(() => parseReviewDraft('[]')).toThrow('必须是 JSON 对象')
+    expect(() =>
+      parseReviewDraft(JSON.stringify({ verdict: 'pass', summary: 42, checks: [] })),
+    ).toThrow('一句话结论')
+    expect(() =>
+      parseReviewDraft(JSON.stringify({ verdict: 'pass', summary: '缺少数组', checks: {} })),
+    ).toThrow('checks 必须是数组')
+    expect(() =>
+      parseReviewDraft(JSON.stringify({ verdict: 'pass', summary: '非对象项', checks: ['goal'] })),
+    ).toThrow('checks[0] 必须是对象')
+    expect(() =>
+      parseReviewDraft(
+        JSON.stringify({
+          verdict: 'pass',
+          summary: '非法状态',
+          checks: [{ check: 'goal', status: 'maybe', detail: '' }],
+        }),
+      ),
+    ).toThrow('状态必须是 pass、fail 或 na')
+    expect(() =>
+      parseReviewDraft(
+        JSON.stringify({
+          verdict: 'fail',
+          summary: '非文本理由',
+          checks: [{ check: 'goal', status: 'fail', detail: 7 }],
+        }),
+      ),
+    ).toThrow('必须说明理由')
   })
 
   it('records a passing review bound to the analysis version', async () => {
@@ -222,6 +259,43 @@ describe('requirement review', () => {
       expect(latest?.verdict).toBe('fail')
       expect(latest?.checks[0]?.detail).toBe('缺少反例')
       expect(repository.nextReviewVersion('req-1')).toBe(2)
+    } finally {
+      database.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('drops malformed stored checks instead of failing the read', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forgeloop-review-store-'))
+    const database = Database.open(join(dir, 'records.sqlite'))
+    try {
+      const repository = new Repository(database)
+      repository.recordReview({
+        reqId: 'req-2',
+        reviewVersion: 1,
+        analysisVersion: 1,
+        reviewer: 'agent:reviewer',
+        verdict: 'fail',
+        summary: '损坏数据',
+        checks: [{ check: 'samples', status: 'fail', detail: '缺少反例' }],
+        promptVersion: 'review-v1',
+        createdAt: '2026-11-24T00:00:00.000Z',
+      })
+      database.handle
+        .prepare('UPDATE requirement_reviews SET checks_json = ? WHERE req_id = ?')
+        .run(
+          JSON.stringify([
+            { check: 'samples', status: 'unknown', detail: '非法状态' },
+            { check: 'not-a-check', status: 'pass', detail: '' },
+            'not-an-object',
+          ]),
+          'req-2',
+        )
+      expect(repository.latestReview('req-2')?.checks).toEqual([])
+      database.handle
+        .prepare('UPDATE requirement_reviews SET checks_json = ? WHERE req_id = ?')
+        .run('"not-an-array"', 'req-2')
+      expect(repository.latestReview('req-2')?.checks).toEqual([])
     } finally {
       database.close()
       rmSync(dir, { recursive: true, force: true })

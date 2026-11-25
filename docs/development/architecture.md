@@ -636,6 +636,8 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
     （提示词、模型输出、工具调用名与入参截断）和真实命令（argv、退出码、输出截断）；
   - 按天轮转，文件名 `plugin.<date>.<n>.log`；当天之前的文件压缩为 `.log.gz`，
     超过 `logging.retentionDays`（默认 14）的压缩文件删除；`logging.maxBytes` 仍限制单文件大小；
+    维护同时识别旧命名 `plugin-<date>[-<n>].log` 与旧压缩文件；旧的 `plugin.log` 在同目录已有
+    新命名文件、或最后修改日期早于今天时压缩为 `plugin.log.gz`（压缩期间大小变化则保留原文件）；
   - 相同 warn/error 在 60 秒窗口内折叠计数，窗口后的首次写入带 `repeated`/`firstAt`/`lastAt`，
     避免同一故障刷满磁盘；
   - 凭据形态（Bearer、`sk-`、`api_key`/`token`/`secret`/`password`）在写盘前脱敏，日志、Agent 转录与

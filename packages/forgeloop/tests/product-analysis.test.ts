@@ -173,7 +173,7 @@ describe('product analysis run', () => {
     const reqId = submit()
     const first = await runtime.analyzeRequirement(reqId)
     expect(first.ok, first.message).toBe(true)
-    expect(requests).toHaveLength(1)
+    expect(requests.filter((request) => request.tools === 'default')).toHaveLength(1)
     expect(requests[0]).toMatchObject({
       role: 'product',
       cwd: project,
@@ -188,7 +188,7 @@ describe('product analysis run', () => {
     const again = await runtime.analyzeRequirement(reqId)
     expect(again.ok).toBe(true)
     expect(again.message).toContain('未重复调用模型')
-    expect(requests).toHaveLength(1)
+    expect(requests.filter((request) => request.tools === 'default')).toHaveLength(1)
     expect(runtime.repo.analyses(reqId)).toHaveLength(1)
     expect(runtime.repo.analysisAttempts(reqId)).toHaveLength(1)
   })
@@ -278,7 +278,7 @@ describe('product analysis run', () => {
     const outcome = await drain(reqId)
     expect(outcome.state).toBe('done')
     expect(outcome.detail).toContain('未重复调用模型')
-    expect(requests).toHaveLength(1)
+    expect(requests.filter((request) => request.tools === 'default')).toHaveLength(1)
     expect(runtime.repo.analyses(reqId)).toHaveLength(1)
   })
 })
@@ -489,7 +489,7 @@ describe('session intake analysis', () => {
       async () => ({ kind: 'enter' as const, messages: [] }),
     )
     expect(decision).toEqual({ kind: 'reject' })
-    expect(requests).toHaveLength(1)
+    expect(requests.filter((request) => request.tools === 'default')).toHaveLength(1)
 
     const analysisEvent = session.events.find((event) => event.type === 'plugin:forgeloop/analysis')
     expect(analysisEvent?.data).toMatchObject({

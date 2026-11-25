@@ -245,9 +245,7 @@ export class ExecutionPlan {
         this.deps.config.autoReview
       ) {
         const reviewed = await this.autoReview(requirement, analysis, signal)
-        return reviewed
-          ? settled
-          : { ...settled, detail: `${settled.detail}；自动评审未完成` }
+        return reviewed ? settled : { ...settled, detail: `${settled.detail}；自动评审未完成` }
       }
       return settled
     }

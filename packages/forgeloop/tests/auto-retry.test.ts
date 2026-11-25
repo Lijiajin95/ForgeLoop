@@ -10,7 +10,13 @@ import {
   type FailureStage,
 } from '../src/domain/counting.js'
 import { MAX_AUTO_RETRIES, autoRetrySource } from '../src/domain/auto-retry.js'
-
+import {
+  AUTO_RETRY_SOURCE,
+  autoRetryAttempt,
+  autoRetryDelayMs,
+  humanBlockedReason,
+  retryableFailureStage,
+} from '../src/domain/auto-retry.js'
 const PROJECT = 'testproj'
 const REQ = 'req-auto-retry'
 
@@ -168,5 +174,30 @@ describe('automatic retry of blocking failures', () => {
     seedBlocked()
     expect(runtime.autoRetryBlocked('2026-11-03T00:01:00.000Z')).toEqual([REQ])
     expect(runtime.autoRetryBlocked('2026-11-03T00:05:00.000Z')).toEqual([])
+  })
+})
+
+describe('auto retry source and stage helpers', () => {
+  it('parses only well-formed retry sources', () => {
+    expect(autoRetryAttempt(autoRetrySource(3))).toBe(3)
+    expect(autoRetryAttempt('owner:manual')).toBeNull()
+    expect(autoRetryAttempt(`${autoRetrySource(0)}`)).toBeNull()
+    expect(autoRetryAttempt(`${AUTO_RETRY_SOURCE}:abc`)).toBeNull()
+    expect(autoRetryAttempt(`${AUTO_RETRY_SOURCE}:1.5`)).toBeNull()
+  })
+
+  it('limits retryable stages and detects human-blocked reasons', () => {
+    expect(retryableFailureStage(FAILURE_VERIFICATION)).toBe(true)
+    expect(retryableFailureStage(FAILURE_USER_ACCEPTANCE)).toBe(false)
+    expect(humanBlockedReason('需求争议：等待客户确认')).toBe(true)
+    expect(humanBlockedReason('授权额度已用尽')).toBe(true)
+    expect(humanBlockedReason('transient network error')).toBe(false)
+  })
+
+  it('backs off exponentially and caps the delay', () => {
+    expect(autoRetryDelayMs(0)).toBe(30_000)
+    expect(autoRetryDelayMs(1)).toBe(60_000)
+    expect(autoRetryDelayMs(6)).toBe(30 * 60_000)
+    expect(autoRetryDelayMs(MAX_AUTO_RETRIES)).toBe(30 * 60_000)
   })
 })

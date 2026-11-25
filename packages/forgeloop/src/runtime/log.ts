@@ -58,7 +58,9 @@ const DEFAULT_LOGGING: LoggingConfig = {
 const DEFAULT_DEDUPE_WINDOW_MS = 60_000
 const DEFAULT_DEDUPE_MAX_ENTRIES = 500
 const LOG_FILE = /^plugin\.(\d{4}-\d{2}-\d{2})\.(\d+)\.log$/
+const LEGACY_LOG_FILE = /^plugin-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.log$/
 const GZIP_FILE = /^plugin\.(\d{4}-\d{2}-\d{2})\.\d+\.log\.gz$/
+const LEGACY_GZIP_FILE = /^plugin-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.log\.gz$/
 const KEEP_RAW = /key|token|secret|password|authorization|credential/i
 const MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000
 
@@ -245,12 +247,21 @@ function productionDestination(base: string, logging: LoggingConfig): Destinatio
   })
 }
 
-function gzipInto(sourcePath: string, targetPath: string): void {
-  writeFileSync(targetPath, gzipSync(readFileSync(sourcePath)))
+function compressOne(sourcePath: string, guardGrowth = false): boolean {
+  const target = `${sourcePath}.gz`
   try {
+    if (existsSync(target)) {
+      if (guardGrowth) return false
+      unlinkSync(sourcePath)
+      return true
+    }
+    const before = guardGrowth ? statSync(sourcePath).size : 0
+    writeFileSync(target, gzipSync(readFileSync(sourcePath)))
+    if (guardGrowth && statSync(sourcePath).size !== before) return true
     unlinkSync(sourcePath)
+    return true
   } catch {
-    // 压缩成功但删除失败时保留原文件，下次维护会重试。
+    return false
   }
 }
 
@@ -265,20 +276,32 @@ function daysBetween(from: string, to: string): number {
   return Math.round((end - start) / 86_400_000)
 }
 
+function datedPlainLog(name: string): string | undefined {
+  return LOG_FILE.exec(name)?.[1] ?? LEGACY_LOG_FILE.exec(name)?.[1]
+}
+
+function datedGzipLog(name: string): string | undefined {
+  return GZIP_FILE.exec(name)?.[1] ?? LEGACY_GZIP_FILE.exec(name)?.[1]
+}
+
+function staleActiveLog(directory: string, today: string, names: readonly string[]): boolean {
+  const active = join(directory, 'plugin.log')
+  if (!existsSync(active)) return false
+  if (names.some((name) => LOG_FILE.test(name))) return true
+  return isoDate(statSync(active).mtime) < today
+}
+
 function compressPastDays(directory: string, today: string): number {
+  const names = readdirSync(directory)
   let compressed = 0
-  for (const name of readdirSync(directory)) {
-    const plain = LOG_FILE.exec(name)
-    if (!plain || plain[1] === undefined || plain[1] >= today) continue
-    const source = join(directory, name)
-    const target = `${source}.gz`
-    try {
-      if (existsSync(target)) unlinkSync(source)
-      else gzipInto(source, target)
-      compressed += 1
-    } catch {
-      // 单个文件失败不影响其余文件。
-    }
+  for (const name of names) {
+    if (name === 'plugin.log') continue
+    const date = datedPlainLog(name)
+    if (!date || date >= today) continue
+    if (compressOne(join(directory, name))) compressed += 1
+  }
+  if (staleActiveLog(directory, today, names)) {
+    if (compressOne(join(directory, 'plugin.log'), true)) compressed += 1
   }
   return compressed
 }
@@ -286,8 +309,8 @@ function compressPastDays(directory: string, today: string): number {
 function deleteExpired(directory: string, today: string, retentionDays: number): number {
   let deleted = 0
   for (const name of readdirSync(directory)) {
-    const gz = GZIP_FILE.exec(name)
-    if (!gz || gz[1] === undefined || daysBetween(gz[1], today) <= retentionDays) continue
+    const date = datedGzipLog(name)
+    if (!date || daysBetween(date, today) <= retentionDays) continue
     try {
       unlinkSync(join(directory, name))
       deleted += 1

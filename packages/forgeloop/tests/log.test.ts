@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
@@ -205,6 +205,53 @@ describe('log retention', () => {
     const dir = tempDir()
     writeFileSync(join(dir, 'other.log'), 'x')
     expect(maintainLogFiles(dir, { now: today })).toEqual({ compressed: 0, deleted: 0 })
+  })
+
+  it('compresses legacy rotated names from the previous scheme', () => {
+    const dir = tempDir()
+    writeFileSync(join(dir, 'plugin-2026-11-22.log'), 'legacy one\n')
+    writeFileSync(join(dir, 'plugin-2026-11-22-1.log'), 'legacy two\n')
+    const result = maintainLogFiles(dir, { now: today, retentionDays: 14 })
+    expect(result.compressed).toBe(2)
+    expect(readFileSync(join(dir, 'plugin-2026-11-22.log.gz'))).toEqual(gzipSync('legacy one\n'))
+    expect(readFileSync(join(dir, 'plugin-2026-11-22-1.log.gz'))).toEqual(gzipSync('legacy two\n'))
+  })
+
+  it('compresses a stale active plugin.log and keeps a fresh one', () => {
+    const stale = tempDir()
+    const stalePath = join(stale, 'plugin.log')
+    writeFileSync(stalePath, 'yesterday\n')
+    utimesSync(
+      stalePath,
+      new Date('2026-11-23T08:00:00.000Z'),
+      new Date('2026-11-23T08:00:00.000Z'),
+    )
+    expect(maintainLogFiles(stale, { now: today }).compressed).toBe(1)
+    expect(readFileSync(join(stale, 'plugin.log.gz'))).toEqual(gzipSync('yesterday\n'))
+
+    const fresh = tempDir()
+    writeFileSync(join(fresh, 'plugin.log'), 'today\n')
+    expect(maintainLogFiles(fresh, { now: today })).toEqual({ compressed: 0, deleted: 0 })
+    expect(readFileSync(join(fresh, 'plugin.log'), 'utf8')).toBe('today\n')
+  })
+
+  it('compresses plugin.log once the current naming scheme exists', () => {
+    const dir = tempDir()
+    const active = join(dir, 'plugin.log')
+    writeFileSync(active, 'old active\n')
+    const stamp = new Date('2026-11-24T09:00:00.000Z')
+    utimesSync(active, stamp, stamp)
+    writeFileSync(join(dir, 'plugin.2026-11-24.1.log'), 'current\n')
+    expect(maintainLogFiles(dir, { now: today }).compressed).toBe(1)
+    expect(readFileSync(join(dir, 'plugin.log.gz'))).toEqual(gzipSync('old active\n'))
+    expect(readFileSync(join(dir, 'plugin.2026-11-24.1.log'), 'utf8')).toBe('current\n')
+  })
+
+  it('removes expired legacy compressed files', () => {
+    const dir = tempDir()
+    writeFileSync(join(dir, 'plugin-2026-01-01.log.gz'), gzipSync('ancient\n'))
+    expect(maintainLogFiles(dir, { now: today, retentionDays: 14 }).deleted).toBe(1)
+    expect(() => readFileSync(join(dir, 'plugin-2026-01-01.log.gz'))).toThrow()
   })
 })
 

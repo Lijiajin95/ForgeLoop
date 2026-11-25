@@ -10714,3 +10714,18 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
   - `Dockerfile` 支持 `NPM_REGISTRY`、`APT_MIRROR` 构建参数，pnpm 预取也按需设置 registry；
   - `docker-verify` 读取 `FORGELOOP_VERIFICATION_NPM_REGISTRY`、`FORGELOOP_VERIFICATION_APT_MIRROR` 透传；
   - 未设置时行为不变；本次用 npmmirror 与清华 Debian 镜像完成构建。
+
+## 293. 历史日志压缩：兼容旧命名与陈旧活动文件（2026-11-25）
+
+来源：上一批只压缩新命名 `plugin.<date>.<n>.log`，磁盘上遗留的 `plugin.log`（旧格式，三个目录共约
+936 KB）和旧轮转名 `plugin-<date>[-<n>].log` 不会被处理。
+
+- `maintainLogFiles` 增加旧命名识别：`plugin-<date>.log`、`plugin-<date>-<n>.log` 与其 `.gz` 版本；
+  过期删除同样覆盖旧压缩文件。
+- 旧 `plugin.log` 的压缩条件：同目录已有新命名文件，或它的最后修改日期早于今天；压缩前记录大小，
+  压缩后若大小变化（日志仍在写入）则保留原文件，避免丢掉新行。
+- 测试：新增 5 项（旧命名压缩、陈旧/新鲜 `plugin.log`、已有新命名时压缩、旧 `.gz` 过期删除），
+  `log.test.ts` 共 20 项。
+- 顺带修复 main 上 product-analysis.test.ts 的 3 项红测试：自动评审使用同一 product 角色（ ools: none），原断言把评审请求也算作分析请求；改为按 ools === 'default' 统计分析调用。
+- 补测 main 上的覆盖率缺口：`auto-retry`、`failure-classification`、`review`、`review-store` 的分支/函数此前未达逐文件门槛（80%/80%/75.67%/72.72%）；新增解析与边界用例后四个文件均为 100%（review-store 92.85% 分支）。
+- 已对 live 记录根执行一次维护（宿主 `records/logs` 与两个租户项目日志目录），结果见交付说明。
