@@ -10572,3 +10572,22 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 - 评审未接入自动流程：需要 Agent 主动调用工具，尚未做到“分析完成即自动评审”（避免每次分析多一次模型调用）；
 - 评审结论未参与准入：fail 结论目前只展示，不阻断；
 - 评审与变更影响、追踪矩阵之间未建立联动。
+
+## 288. 主编译线回归修复：提示词快照、分析 JSON 往返与澄清自动入队（2026-11-25）
+
+背景：并行提交（analysis-v8、质量属性与数据要求、机会与备选方案、需求修订后自动重新分析）合并后，主编译线残留 3 处测试失败；均属测试或快照未随行为演进，不是产品逻辑缺陷。
+
+### 288.1 修复
+
+- `mutation-gap-views-deep.test.ts` 的分析提示词快照补入 `quality_attributes`、`data_requirements`、机会与备选方案及假设可测试性说明；仅更新快照，未改提示词。
+- `property-invariants-advanced.test.ts` 的结构化分析 JSON 往返断言补上 canonical 新增的 `quality`、`data`、`opportunities`、`solutions` 空数组，并删除重复的 `references`/`uiMap`/`samples` 键。
+- `product-analysis.test.ts` 的澄清回答用例改为断言 `autoAdvance` 开启时 `answerClarifications` 自动把需求加入待排队列，并锁定重复入队抛错；不再手动 `enqueue`。
+
+### 288.2 验证
+
+- 分支 `fix/main-red-tests`（提交 `454ea55`、`61197f0`）rebase 到最新 main 后，三个文件 57 项通过；容器 `make check`（`node:26.13.0-bookworm`，镜像 `forgeloop-check:red3`）：245 个文件、2701 通过、1 跳过、0 失败。
+- 合并后 main（`61197f0`）再次容器 `make check`：245 个文件、2704 通过、1 跳过、0 失败。
+
+### 288.3 边界
+
+- 提示词快照会随分析模板演进再次失效；改动提示词或输出 schema 时必须同批更新快照与 JSON 往返断言，否则主编译线会再次变红。
