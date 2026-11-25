@@ -129,6 +129,8 @@ describe('analysis draft parsing', () => {
       samples: [],
       quality: [],
       data: [],
+      opportunities: [],
+      solutions: [],
       clarifications: [],
       clarificationUpdates: [],
       libraryReview: null,

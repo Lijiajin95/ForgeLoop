@@ -1,5 +1,5 @@
 /** 分析提示词的版本号；提示词语义变化时必须递增并同步测试。 */
-export const ANALYSIS_PROMPT_VERSION = 'analysis-v8'
+export const ANALYSIS_PROMPT_VERSION = 'analysis-v9'
 
 export const MAX_AUTO_ANALYSIS_RETRIES = 20
 

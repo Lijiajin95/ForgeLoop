@@ -88,6 +88,8 @@ function specOf(overrides: Partial<AnalysisSpec> = {}): AnalysisSpec {
     samples: [],
     quality: [],
     data: [],
+    opportunities: [],
+    solutions: [],
     ...overrides,
   }
 }

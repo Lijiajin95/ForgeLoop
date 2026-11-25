@@ -116,6 +116,37 @@ export interface AcceptanceSample {
   readonly observeAt: string
 }
 
+export type OpportunityKind = 'interview' | 'ticket' | 'observation' | 'owner'
+
+const OPPORTUNITY_KINDS: readonly OpportunityKind[] = [
+  'interview',
+  'ticket',
+  'observation',
+  'owner',
+]
+
+export type OpportunityStatus = 'candidate' | 'confirmed'
+
+const OPPORTUNITY_STATUSES: readonly OpportunityStatus[] = ['candidate', 'confirmed']
+
+export interface Opportunity {
+  readonly id: string
+  readonly statement: string
+  readonly kind: OpportunityKind
+  readonly evidence: string
+  readonly status: OpportunityStatus
+  readonly outcome: string
+}
+
+export interface SolutionOption {
+  readonly id: string
+  readonly opportunityId: string
+  readonly summary: string
+  readonly tradeoffs: string
+  readonly chosen: boolean
+  readonly rationale: string
+}
+
 export type QualityKind =
   | 'performance'
   | 'security'
@@ -171,18 +202,22 @@ export interface AnalysisSpec {
   readonly samples: readonly AcceptanceSample[]
   readonly quality: readonly QualityAttribute[]
   readonly data: readonly DataRequirement[]
+  readonly opportunities: readonly Opportunity[]
+  readonly solutions: readonly SolutionOption[]
 }
 
 /** 校验入口接受的规格：历史记录与调用方可能还没有本轮新增的产物。 */
 export type SpecInput = Omit<
   AnalysisSpec,
-  'references' | 'uiMap' | 'samples' | 'quality' | 'data'
+  'references' | 'uiMap' | 'samples' | 'quality' | 'data' | 'opportunities' | 'solutions'
 > & {
   readonly references?: readonly EvidenceReference[] | undefined
   readonly uiMap?: readonly UiMapEntry[] | undefined
   readonly samples?: readonly AcceptanceSample[] | undefined
   readonly quality?: readonly QualityAttribute[] | undefined
   readonly data?: readonly DataRequirement[] | undefined
+  readonly opportunities?: readonly Opportunity[] | undefined
+  readonly solutions?: readonly SolutionOption[] | undefined
 }
 
 /** 只需规格字段的分析投影；避免 domain/requirement 与 domain/spec 形成循环依赖。 */
@@ -196,6 +231,8 @@ export interface SpecBearingAnalysis {
   readonly samples?: readonly AcceptanceSample[] | undefined
   readonly quality?: readonly QualityAttribute[] | undefined
   readonly data?: readonly DataRequirement[] | undefined
+  readonly opportunities?: readonly Opportunity[] | undefined
+  readonly solutions?: readonly SolutionOption[] | undefined
   readonly clarifications?: readonly string[] | undefined
 }
 
@@ -211,6 +248,8 @@ const UI_MAP_ID = /^UI-(\d+)$/
 const SAMPLE_ID = /^SMP-(\d+)$/
 const QUALITY_ID = /^QA-(\d+)$/
 const DATA_ID = /^DATA-(\d+)$/
+const OPPORTUNITY_ID = /^OPP-(\d+)$/
+const SOLUTION_ID = /^SOL-(\d+)$/
 
 function nonEmpty(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -548,6 +587,58 @@ function parseDataRequirements(raw: unknown): DataRequirement[] {
   })
 }
 
+function parseOpportunities(raw: unknown): Opportunity[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 opportunities 必须是数组')
+  return raw.map((item, index) => {
+    const field = `opportunities[${index}]`
+    const data = objectAt(item, field)
+    const kind = OPPORTUNITY_KINDS.find((candidate) => candidate === data.kind)
+    if (!kind) {
+      throw new MalformedError(
+        `分析字段 ${field}.kind 必须是 interview、ticket、observation 或 owner`,
+      )
+    }
+    const status = OPPORTUNITY_STATUSES.find((candidate) => candidate === data.status)
+    if (!status) {
+      throw new MalformedError(`分析字段 ${field}.status 必须是 candidate 或 confirmed`)
+    }
+    const evidence = typeof data.evidence === 'string' ? data.evidence.trim() : ''
+    if (status === 'confirmed' && !evidence) {
+      throw new MalformedError(`${field} 标记为已确认时必须给出证据摘录`)
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      statement: nonEmpty(data.statement, `${field}.statement`),
+      kind,
+      evidence,
+      status,
+      outcome: typeof data.outcome === 'string' ? data.outcome.trim() : '',
+    } satisfies Opportunity
+  })
+}
+
+function parseSolutions(raw: unknown): SolutionOption[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new MalformedError('分析字段 solutions 必须是数组')
+  return raw.map((item, index) => {
+    const field = `solutions[${index}]`
+    const data = objectAt(item, field)
+    const chosen = data.chosen
+    if (typeof chosen !== 'boolean') {
+      throw new MalformedError(`分析字段 ${field}.chosen 必须是布尔值`)
+    }
+    return {
+      id: nonEmpty(data.id, `${field}.id`),
+      opportunityId: nonEmpty(data.opportunity_id ?? data.opportunityId, `${field}.opportunity_id`),
+      summary: nonEmpty(data.summary, `${field}.summary`),
+      tradeoffs: nonEmpty(data.tradeoffs, `${field}.tradeoffs`),
+      chosen,
+      rationale: chosen ? nonEmpty(data.rationale, `${field}.rationale`) : '',
+    } satisfies SolutionOption
+  })
+}
+
 export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields {
   const rawPoints = data.business_points
   if (rawPoints !== undefined && !Array.isArray(rawPoints)) {
@@ -566,6 +657,8 @@ export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields
   const samples = parseSamples(data.samples)
   const quality = parseQuality(data.quality_attributes)
   const dataRequirements = parseDataRequirements(data.data_requirements)
+  const opportunities = parseOpportunities(data.opportunities)
+  const solutions = parseSolutions(data.solutions)
   return {
     points,
     acceptance,
@@ -576,6 +669,8 @@ export function parseSpecFields(data: Record<string, unknown>): ParsedSpecFields
     samples,
     quality,
     data: dataRequirements,
+    opportunities,
+    solutions,
     acceptanceCriteria,
   }
 }
@@ -686,6 +781,8 @@ function validateIds(
   validateArtifactIds(spec.samples, SAMPLE_ID, '验收样例', 'SMP')
   validateArtifactIds(spec.quality, QUALITY_ID, '质量属性', 'QA')
   validateArtifactIds(spec.data, DATA_ID, '数据要求', 'DATA')
+  validateArtifactIds(spec.opportunities, OPPORTUNITY_ID, '机会', 'OPP')
+  validateArtifactIds(spec.solutions, SOLUTION_ID, '备选方案', 'SOL')
 }
 
 function validateArtifactIds(
@@ -773,6 +870,26 @@ function validateDataRequirement(
   }
 }
 
+function validateDiscovery(spec: AnalysisSpec): void {
+  const opportunities = new Set(spec.opportunities.map((item) => item.id))
+  for (const solution of spec.solutions) {
+    if (!opportunities.has(solution.opportunityId)) {
+      throw new MalformedError(
+        `备选方案 ${solution.id} 关联了不存在的机会 ${solution.opportunityId}`,
+      )
+    }
+  }
+  for (const opportunity of spec.opportunities) {
+    const options = spec.solutions.filter((solution) => solution.opportunityId === opportunity.id)
+    const chosen = options.filter((solution) => solution.chosen)
+    if (options.length > 0 && chosen.length !== 1) {
+      throw new MalformedError(
+        `机会 ${opportunity.id} 有备选方案时必须恰好选中一个，实际 ${chosen.length} 个`,
+      )
+    }
+  }
+}
+
 function validateArtifacts(spec: AnalysisSpec, input: SpecValidationInput): void {
   const known = {
     points: new Set(spec.points.map((point) => point.id)),
@@ -785,6 +902,7 @@ function validateArtifacts(spec: AnalysisSpec, input: SpecValidationInput): void
   for (const entry of spec.uiMap) requireMappedIds(entry, '功能地图', known)
   for (const attribute of spec.quality) validateQuality(attribute, known)
   for (const item of spec.data) validateDataRequirement(item, known)
+  validateDiscovery(spec)
   for (const sample of spec.samples) {
     if (sample.acceptanceIds.length === 0) {
       throw new MalformedError(`验收样例 ${sample.id} 必须关联至少一个验收项`)
@@ -813,6 +931,9 @@ export type StageGapCode =
   | 'quality_attributes'
   | 'data_requirements'
   | 'assumption_tests'
+  | 'discovery_evidence'
+  | 'solution_comparison'
+  | 'opportunity_shape'
 
 export interface StageGap {
   readonly code: StageGapCode
@@ -838,6 +959,38 @@ const DATA_HINTS = ['数据', '字段', '表结构', '保留', '导出', '隐私
 
 function mentions(texts: readonly string[], hints: readonly string[]): boolean {
   return texts.some((text) => hints.some((hint) => text.includes(hint)))
+}
+
+function discoveryGaps(spec: AnalysisSpec): StageGap[] {
+  const gaps: StageGap[] = []
+  const noEvidence = spec.opportunities
+    .filter((item) => item.status === 'candidate' && !item.evidence)
+    .map((item) => item.id)
+  if (noEvidence.length > 0) {
+    gaps.push({ code: 'discovery_evidence', detail: `机会缺少来源证据：${noEvidence.join('、')}` })
+  }
+  const thin = spec.opportunities
+    .filter((item) => item.status === 'confirmed')
+    .filter(
+      (item) => spec.solutions.filter((solution) => solution.opportunityId === item.id).length < 2,
+    )
+    .map((item) => item.id)
+  if (thin.length > 0) {
+    gaps.push({
+      code: 'solution_comparison',
+      detail: `已确认机会缺少至少两个可比较方案：${thin.join('、')}`,
+    })
+  }
+  const featureShaped = spec.opportunities
+    .filter((item) => /增加|支持|新增|页面|按钮|接口|筛选|导出/.test(item.statement))
+    .map((item) => item.id)
+  if (featureShaped.length > 0) {
+    gaps.push({
+      code: 'opportunity_shape',
+      detail: `机会看起来是功能表述，建议改写成客户需求：${featureShaped.join('、')}`,
+    })
+  }
+  return gaps
 }
 
 export function requirementStageGaps(
@@ -887,6 +1040,7 @@ export function requirementStageGaps(
       detail: '需求涉及数据或个人信息，但尚无字段、约束与保留期的数据要求',
     })
   }
+  gaps.push(...discoveryGaps(spec))
   const untested = spec.assumptions
     .filter((assumption) => !assumption.testMethod || !assumption.successThreshold)
     .map((assumption) => assumption.id)
@@ -951,6 +1105,8 @@ function rejectProblemArtifacts(spec: AnalysisSpec): void {
     spec.samples.length,
     spec.quality.length,
     spec.data.length,
+    spec.opportunities.length,
+    spec.solutions.length,
   ]
   if (counts.some((count) => count > 0)) {
     throw new MalformedError('问题输入不做业务要点拆解；只给现象与可检查的修复判据')
@@ -966,6 +1122,8 @@ export function validateSpec(input: SpecValidationInput): void {
     samples: input.spec.samples ?? [],
     quality: input.spec.quality ?? [],
     data: input.spec.data ?? [],
+    opportunities: input.spec.opportunities ?? [],
+    solutions: input.spec.solutions ?? [],
   }
   if (inputKind === 'problem') {
     rejectProblemArtifacts(spec)
@@ -1001,6 +1159,8 @@ export function analysisSpecOf(analysis: SpecBearingAnalysis): AnalysisSpec {
     samples: analysis.samples ?? [],
     quality: analysis.quality ?? [],
     data: analysis.data ?? [],
+    opportunities: analysis.opportunities ?? [],
+    solutions: analysis.solutions ?? [],
   }
 }
 
@@ -1040,6 +1200,8 @@ export function specChanges(
     samples: [],
     quality: [],
     data: [],
+    opportunities: [],
+    solutions: [],
   })
   const before = previous ? analysisSpecOf(previous) : emptySpec()
   const after = latest ? analysisSpecOf(latest) : emptySpec()

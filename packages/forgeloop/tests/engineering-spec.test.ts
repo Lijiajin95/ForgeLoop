@@ -74,6 +74,8 @@ function specOf(overrides: Partial<AnalysisSpec> = {}): AnalysisSpec {
     samples: [],
     quality: [],
     data: [],
+    opportunities: [],
+    solutions: [],
     ...overrides,
   }
 }
@@ -318,6 +320,118 @@ describe('engineering spec artifacts', () => {
 
     const uncovered = specTraceability(specOf())
     expect(uncovered[0]?.uncoveredAcceptance).toEqual(['AC-1'])
+  })
+
+  it('parses opportunities and solution options with a single chosen option', () => {
+    const fields = parsed({
+      opportunities: [
+        {
+          id: 'OPP-1',
+          statement: '店长找不到需要处理的订单',
+          kind: 'interview',
+          evidence: '访谈 3 位店长',
+          status: 'confirmed',
+          outcome: '订单处理时长',
+        },
+      ],
+      solutions: [
+        {
+          id: 'SOL-1',
+          opportunity_id: 'OPP-1',
+          summary: '按状态分组',
+          tradeoffs: '实现快，但需要维护分组',
+          chosen: true,
+          rationale: '改动最小且可回滚',
+        },
+        {
+          id: 'SOL-2',
+          opportunity_id: 'OPP-1',
+          summary: '搜索框',
+          tradeoffs: '灵活，但用户要知道状态名',
+          chosen: false,
+          rationale: '',
+        },
+      ],
+    })
+    expect(fields.opportunities[0]).toMatchObject({
+      id: 'OPP-1',
+      kind: 'interview',
+      status: 'confirmed',
+      evidence: '访谈 3 位店长',
+    })
+    expect(fields.solutions.map((solution) => solution.chosen)).toEqual([true, false])
+    expect(fields.solutions[0]?.opportunityId).toBe('OPP-1')
+  })
+
+  it('rejects discovery artifacts with missing evidence or an invalid chosen set', () => {
+    expect(() =>
+      parsed({
+        opportunities: [
+          {
+            id: 'OPP-1',
+            statement: '寻找订单很慢',
+            kind: 'interview',
+            evidence: '',
+            status: 'confirmed',
+            outcome: '',
+          },
+        ],
+      }),
+    ).toThrow('标记为已确认时必须给出证据摘录')
+    const fields = parsed({
+      opportunities: [
+        {
+          id: 'OPP-1',
+          statement: '寻找订单很慢',
+          kind: 'interview',
+          evidence: '访谈',
+          status: 'confirmed',
+          outcome: '',
+        },
+      ],
+      solutions: [
+        {
+          id: 'SOL-1',
+          opportunity_id: 'OPP-1',
+          summary: '按状态分组',
+          tradeoffs: '快',
+          chosen: true,
+          rationale: '最小改动',
+        },
+        {
+          id: 'SOL-2',
+          opportunity_id: 'OPP-1',
+          summary: '搜索框',
+          tradeoffs: '灵活',
+          chosen: true,
+          rationale: '也想要',
+        },
+      ],
+    })
+    expect(() =>
+      validate(specOf({ opportunities: fields.opportunities, solutions: fields.solutions })),
+    ).toThrow('必须恰好选中一个')
+  })
+
+  it('reports missing evidence, thin comparison and feature-shaped opportunities', () => {
+    const gaps = requirementStageGaps({
+      ...specOf(),
+      opportunities: [
+        {
+          id: 'OPP-1',
+          statement: '增加订单筛选',
+          kind: 'owner',
+          evidence: '',
+          status: 'candidate',
+          outcome: '',
+        },
+      ],
+      solutions: [],
+    })
+    const codes = gaps.map((gap) => gap.code)
+    expect(codes).toContain('discovery_evidence')
+    expect(codes).toContain('opportunity_shape')
+    expect(codes).not.toContain('solution_comparison')
   })
 
   it('keeps quality attributes and data requirements across record and read', () => {

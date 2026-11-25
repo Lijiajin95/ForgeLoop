@@ -103,6 +103,8 @@ export class AnalysisStore {
       samples: analysis.samples ?? [],
       quality: analysis.quality ?? [],
       data: analysis.data ?? [],
+      opportunities: analysis.opportunities ?? [],
+      solutions: analysis.solutions ?? [],
     }
     const groups = [
       spec.points,
@@ -114,6 +116,8 @@ export class AnalysisStore {
       spec.samples,
       spec.quality,
       spec.data,
+      spec.opportunities,
+      spec.solutions,
     ]
     if (groups.every((group) => group.length === 0)) return
     this.db
@@ -200,6 +204,22 @@ export class AnalysisStore {
             point_ids: item.pointIds,
             acceptance_ids: item.acceptanceIds,
           })),
+          opportunities: spec.opportunities.map((item) => ({
+            id: item.id,
+            statement: item.statement,
+            kind: item.kind,
+            evidence: item.evidence,
+            status: item.status,
+            outcome: item.outcome,
+          })),
+          solutions: spec.solutions.map((item) => ({
+            id: item.id,
+            opportunity_id: item.opportunityId,
+            summary: item.summary,
+            tradeoffs: item.tradeoffs,
+            chosen: item.chosen,
+            rationale: item.rationale,
+          })),
         }),
       )
   }
@@ -222,6 +242,8 @@ export class AnalysisStore {
           samples: parsed.samples,
           quality: parsed.quality,
           data: parsed.data,
+          opportunities: parsed.opportunities,
+          solutions: parsed.solutions,
         }
         return [num(row, 'analysis_version'), spec]
       }),
@@ -269,6 +291,8 @@ export class AnalysisStore {
               samples: spec.samples,
               quality: spec.quality,
               data: spec.data,
+              opportunities: spec.opportunities,
+              solutions: spec.solutions,
             }
           : {}),
         clarifications: parseStringList(text(row, 'clarifications')),

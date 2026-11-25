@@ -293,6 +293,26 @@ ${library || '（项目尚未建立需求库；本轮按无背景处理）'}
       "acceptance_ids": ["AC-1"]
     }
   ],
+  "opportunities": [
+    {
+      "id": "OPP-1，稳定编号；没有发现层材料时留空数组",
+      "statement": "客户视角的未满足需求，不是功能；能用多种方式解决",
+      "kind": "interview、ticket、observation 或 owner",
+      "evidence": "来源摘录或观测；status=confirmed 时必填",
+      "status": "candidate 或 confirmed",
+      "outcome": "这个需求影响的可度量结果；没有就留空字符串"
+    }
+  ],
+  "solutions": [
+    {
+      "id": "SOL-1，稳定编号",
+      "opportunity_id": "OPP-1",
+      "summary": "候选方案摘要",
+      "tradeoffs": "与其它方案的取舍",
+      "chosen": true,
+      "rationale": "chosen=true 时必填：为什么选它"
+    }
+  ],
   "clarifications": ["本轮新发现的、确实阻塞实施的待澄清问题；没有就留空数组；问题输入必须为空"],
   "library_review": {
     "reviewed": [
@@ -343,6 +363,8 @@ ${library || '（项目尚未建立需求库；本轮按无背景处理）'}
 - 质量属性：需求涉及性能、并发、安全、权限、可用性、兼容性或合规时，必须给 quality_attributes；每条要有测什么（metric）、含数值与单位的目标（target）、测量方式与位置（measure），并关联 BP 或 AC。没有非功能约束时留空数组。
 - 数据要求：需求涉及实体、字段、保留期、导出或个人信息时，必须给 data_requirements；每个字段有名称、类型与约束；pii=true 时必须写保留期与到期处置。没有数据变化时留空数组。
 - 可度量优先：凡是能写成阈值、计数的目标都写数值；禁止用“快”“稳定”“友好”“尽量”替代可观察结果或数值目标。
+- 发现层可选但必须自洽：opportunities 只能来自给定材料或所有者输入，只能标 candidate 或 confirmed；confirmed 必须有证据摘录。机会是客户需求，不能写成功能（“增加筛选”是方案不是机会）。
+- 方案比较：每个已确认机会应有至少两个可比较方案，并恰好选中一个（chosen=true + rationale）；只有一个合理方案时也要写出被否方案与取舍理由。
 - 假设必须可测试：每条 assumption 尽量给 category 与成对的 test_method／success_threshold；needs_confirmation=true 的假设仍会阻断准入，必须由所有者确认，不能写成已确认规则。
 - 重新分析时保留上一次结构化说明中仍然成立的编号与内容；不要重排 BP/AC/AS 编号，新编号必须大于历史最大编号。已回答或已解决的澄清不得被无依据推翻。
 - 从业务场景出发理解需求：先写清谁在什么情况下做什么、成功与失败分别意味着什么，再归纳业务规则、异常与边界、非目标。

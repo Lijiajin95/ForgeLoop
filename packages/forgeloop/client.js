@@ -1069,6 +1069,13 @@ window.__ModuleLoader__.load({
       'detail.specDecision': '需要决定',
       'detail.specNewQuestions': '新待澄清',
       'detail.specAssumption': '假设',
+      'detail.specDiscovery': '发现层',
+      'detail.specNoDiscovery': '没有记录机会与备选方案',
+      'detail.specOpportunity': '机会',
+      'detail.specSolution': '方案',
+      'detail.specSolutionChosen': '选中',
+      'detail.specSolutionTradeoffs': '取舍',
+      'detail.specSolutionRationale': '理由',
       'detail.specTraceability': '追踪矩阵',
       'detail.specTracePoint': '业务要点',
       'detail.specTraceAcceptance': '验收',
@@ -1842,6 +1849,13 @@ window.__ModuleLoader__.load({
       'detail.specDecision': 'Decision needed',
       'detail.specNewQuestions': 'New clarifications',
       'detail.specAssumption': 'Assumption',
+      'detail.specDiscovery': 'Discovery',
+      'detail.specNoDiscovery': 'No opportunities or options recorded',
+      'detail.specOpportunity': 'Opportunity',
+      'detail.specSolution': 'Solution',
+      'detail.specSolutionChosen': 'chosen',
+      'detail.specSolutionTradeoffs': 'Tradeoffs',
+      'detail.specSolutionRationale': 'Rationale',
       'detail.specTraceability': 'Traceability',
       'detail.specTracePoint': 'Point',
       'detail.specTraceAcceptance': 'Acceptance',
@@ -3956,6 +3970,58 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function discoveryView(t, analysis) {
+      const opportunities = Array.isArray(analysis.opportunities) ? analysis.opportunities : []
+      const solutions = Array.isArray(analysis.solutions) ? analysis.solutions : []
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'discovery' },
+        h('div', { className: 'flb-label' }, t('detail.specDiscovery')),
+        opportunities.length === 0
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoDiscovery'))
+          : opportunities.map((item) =>
+              h(
+                'div',
+                { key: item.id },
+                `${item.id} · ${t('detail.specOpportunity')} · ${item.statement}`,
+                h(
+                  'div',
+                  { className: 'flb-muted' },
+                  `${item.kind} · ${item.status}${item.outcome ? ` · ${item.outcome}` : ''}`,
+                ),
+                item.evidence
+                  ? h(
+                      'div',
+                      { className: 'flb-muted' },
+                      `${t('detail.specSource')}：${item.evidence}`,
+                    )
+                  : null,
+                ...solutions
+                  .filter((solution) => solution.opportunityId === item.id)
+                  .map((solution) =>
+                    h(
+                      'div',
+                      { key: solution.id },
+                      `${solution.id} · ${t('detail.specSolution')} · ${solution.summary}${solution.chosen ? ` · ${t('detail.specSolutionChosen')}` : ''}`,
+                      h(
+                        'div',
+                        { className: 'flb-muted' },
+                        `${t('detail.specSolutionTradeoffs')}：${solution.tradeoffs}`,
+                      ),
+                      solution.rationale
+                        ? h(
+                            'div',
+                            { className: 'flb-muted' },
+                            `${t('detail.specSolutionRationale')}：${solution.rationale}`,
+                          )
+                        : null,
+                    ),
+                  ),
+              ),
+            ),
+      )
+    }
+
     function pointView(t, point, acceptance) {
       const items = acceptance.filter(
         (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
@@ -4044,6 +4110,8 @@ window.__ModuleLoader__.load({
         h('div', { className: 'flb-label', key: 'points-label' }, t('detail.specPoints')),
         ...points.map((point) => pointView(t, point, acceptance)),
         referenceView(t, analysis),
+        traceabilityView(t, data.traceability),
+        discoveryView(t, analysis),
         traceabilityView(t, data.traceability),
         referenceView(t, analysis),
         uiMapView(t, analysis),

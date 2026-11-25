@@ -10,7 +10,9 @@ import type {
   CommitmentConflict,
   DataRequirement,
   EvidenceReference,
+  Opportunity,
   QualityAttribute,
+  SolutionOption,
   UiMapEntry,
 } from './spec.js'
 import { parseSpecFields } from './spec.js'
@@ -81,6 +83,8 @@ export interface RequirementAnalysis {
   readonly samples?: readonly AcceptanceSample[]
   readonly quality?: readonly QualityAttribute[]
   readonly data?: readonly DataRequirement[]
+  readonly opportunities?: readonly Opportunity[]
+  readonly solutions?: readonly SolutionOption[]
   readonly clarifications: readonly string[]
   readonly model?: string
   readonly promptVersion?: string
@@ -113,6 +117,8 @@ export interface AnalysisDraft {
   readonly samples: readonly AcceptanceSample[]
   readonly quality: readonly QualityAttribute[]
   readonly data: readonly DataRequirement[]
+  readonly opportunities: readonly Opportunity[]
+  readonly solutions: readonly SolutionOption[]
   readonly clarifications: readonly string[]
   readonly clarificationUpdates: readonly ClarificationUpdate[]
   readonly libraryReview: LibraryReview | null
@@ -291,6 +297,8 @@ export function parseAnalysisDraft(raw: unknown): AnalysisDraft {
     samples: spec.samples,
     quality: spec.quality,
     data: spec.data,
+    opportunities: spec.opportunities,
+    solutions: spec.solutions,
     clarifications,
     clarificationUpdates,
     libraryReview: parseLibraryReview(data.library_review),
