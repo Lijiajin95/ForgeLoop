@@ -62,6 +62,8 @@ const HEADLESS_TIMEOUT_MS = Number(process.env.FORGELOOP_REAL_MODEL_SUBMIT_TIMEO
 const BLOCKED_GRACE_MS = Number(process.env.FORGELOOP_REAL_MODEL_BLOCKED_GRACE_MS ?? 240_000)
 /** 需求阶段允许分析失败后被协调器自动重排的观察窗口。 */
 const STAGE_RETRY_GRACE_MS = 420_000
+const REVIEW_WAIT_MS = 300_000
+const EXPECTED_ANALYSIS_PROMPT = 'analysis-v9'
 /** 单回合上限：真实模型规划/实现可能超过 10 分钟，默认放宽到 30 分钟。 */
 const TURN_TIMEOUT_SECONDS = Number(process.env.FORGELOOP_REAL_MODEL_TURN_TIMEOUT_SECONDS ?? 1800)
 /**
@@ -334,6 +336,7 @@ async function pollRequirementStage(
   const deadline = Date.now() + TIMEOUT_MS
   let lastLine = ''
   let failedSince: number | null = null
+  let analysisSeenAt: number | null = null
   while (Date.now() < deadline) {
     if (!existsSync(dbPath)) {
       await sleep(2_000)
@@ -385,6 +388,14 @@ async function pollRequirementStage(
           'SELECT attempt, outcome, detail, prompt_version AS promptVersion FROM requirement_analysis_attempts WHERE req_id = ? ORDER BY attempt DESC LIMIT 1',
           [requirement.req_id],
         )
+        const review = analysis
+          ? queryOne<{ verdict: string; reviewVersion: number }>(
+              db,
+              'SELECT verdict, review_version AS reviewVersion FROM requirement_reviews WHERE req_id = ? ORDER BY review_version DESC LIMIT 1',
+              [requirement.req_id],
+            )
+          : undefined
+        const clarifications = Array.isArray(spec?.clarifications) ? spec.clarifications.length : 0
         const line = JSON.stringify({
           status: requirement.status,
           admission: admission?.decision ?? null,
@@ -392,6 +403,7 @@ async function pollRequirementStage(
           promptVersion: analysis?.promptVersion ?? null,
           attempt: attempt?.outcome ?? null,
           points: Array.isArray(spec?.business_points) ? spec.business_points.length : 0,
+          review: review?.verdict ?? null,
         })
         if (line !== lastLine) {
           console.log(`[real-model-e2e] 需求阶段：${line}`)
@@ -412,7 +424,15 @@ async function pollRequirementStage(
         }
         failedSince = null
         if (analysis) {
-          return { requirement, admission, analysis, attempt, spec }
+          if (review || clarifications > 0) {
+            return { requirement, admission, analysis, attempt, spec, review: review ?? null }
+          }
+          analysisSeenAt ??= Date.now()
+          if (Date.now() - analysisSeenAt > REVIEW_WAIT_MS) {
+            throw new Error(
+              `自动评审未在 ${Math.round(REVIEW_WAIT_MS / 1000)} 秒内落库（analysis v${analysis.analysisVersion}）`,
+            )
+          }
         }
       }
     } finally {
@@ -864,8 +884,8 @@ async function main(): Promise<void> {
       if (stage.requirement.source !== 'dsh-tool:submit_requirement') {
         throw new Error(`需求来源未按工具记录：${stage.requirement.source}`)
       }
-      if (!stage.analysis || stage.analysis.promptVersion !== 'analysis-v6') {
-        throw new Error(`分析未使用 analysis-v6：${JSON.stringify(stage.analysis)}`)
+      if (!stage.analysis || stage.analysis.promptVersion !== EXPECTED_ANALYSIS_PROMPT) {
+        throw new Error(`分析未使用 ${EXPECTED_ANALYSIS_PROMPT}：${JSON.stringify(stage.analysis)}`)
       }
       const points = Array.isArray(stage.spec?.business_points)
         ? stage.spec.business_points.length
@@ -884,6 +904,25 @@ async function main(): Promise<void> {
               (sample) => sample.kind === 'counter_example',
             ).length
           : 0,
+        quality: Array.isArray(stage.spec?.quality_attributes)
+          ? stage.spec.quality_attributes.length
+          : 0,
+        data: Array.isArray(stage.spec?.data_requirements)
+          ? stage.spec.data_requirements.length
+          : 0,
+        opportunities: Array.isArray(stage.spec?.opportunities)
+          ? stage.spec.opportunities.length
+          : 0,
+        solutions: Array.isArray(stage.spec?.solutions) ? stage.spec.solutions.length : 0,
+        assumptions: Array.isArray(stage.spec?.assumptions) ? stage.spec.assumptions.length : 0,
+      }
+      const untestedAssumptions = Array.isArray(stage.spec?.assumptions)
+        ? (
+            stage.spec.assumptions as Array<{ test_method?: string; success_threshold?: string }>
+          ).filter((assumption) => !assumption.test_method || !assumption.success_threshold).length
+        : 0
+      if (!stage.review) {
+        throw new Error('分析没有澄清时未自动产出需求评审')
       }
       const reports = join(ROOT, 'reports')
       mkdirSync(reports, { recursive: true })
@@ -897,6 +936,8 @@ async function main(): Promise<void> {
             analysis: stage.analysis,
             attempt: stage.attempt,
             counts,
+            untestedAssumptions,
+            review: stage.review,
             spec: stage.spec,
           },
           null,
