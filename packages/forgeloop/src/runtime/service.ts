@@ -87,11 +87,12 @@ import { applyDiffFile } from './diff-apply.js'
 import { buildStatusBoard, type StatusBoardView } from './board.js'
 import { pendingClarificationsOf, type PendingClarification } from './clarification-view.js'
 import { clarificationAnswerContext } from './clarification-answer.js'
+import { parseReviewDraft, REVIEW_PROMPT_VERSION } from '../domain/review.js'
 import { recordRevisionInvalidation } from './analysis-lifecycle.js'
 import { requirementDetailExtras } from './requirement-detail.js'
 import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
 import { runFormalTest } from './formal-test.js'
-import { planReviewPrompt, requirementContext } from './prompts.js'
+import { planReviewPrompt, requirementContext, requirementReviewPrompt } from './prompts.js'
 import { requestSource, requestView } from './execution-views.js'
 import { LegacyVerification } from './legacy-verification.js'
 import { TaskDelivery, type DeliverInput, type DeliverOutcome } from './task-delivery.js'
@@ -651,6 +652,61 @@ ${answer}`
       `已追加需求 ${input.reqId} 版本 ${updated.versions.length}；既有任务包与批准对该版本过期，需重新分析与规划${handoff}`,
       this.requirementView(updated),
     )
+  }
+
+  async reviewRequirement(input: {
+    reqId: string
+    by: string
+    signal?: AbortSignal | undefined
+  }): Promise<OperationResult> {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    const analysis = this.repo.latestAnalysis(input.reqId)
+    if (!analysis) {
+      return fail('analysis_required', `需求 ${input.reqId} 尚无结构化分析，无法评审`)
+    }
+    if (analysis.requirementVersion !== requirement.versions.length) {
+      return fail(
+        'analysis_stale',
+        `分析依据 v${analysis.requirementVersion}，当前需求是 v${requirement.versions.length}；请先重新分析`,
+      )
+    }
+    const reviewVersion = this.repo.nextReviewVersion(input.reqId)
+    const result = await this.runner.run({
+      role: AGENT_PRODUCT,
+      cwd: this.config.projectPath,
+      prompt: requirementReviewPrompt(requirement, analysis),
+      permission: 'workspace-write',
+      timeoutMs: this.config.agent.timeoutSeconds * 1000,
+      transcriptPath: join(
+        sessionsDir(this.config),
+        `${input.reqId}-v${analysis.analysisVersion}-review-r${reviewVersion}.jsonl`,
+      ),
+      tools: 'none',
+      ...(input.signal ? { signal: input.signal } : {}),
+    })
+    if (result.status !== 'completed') {
+      return fail('review_failed', `需求评审未完成：${result.reason}`)
+    }
+    let draft: ReturnType<typeof parseReviewDraft>
+    try {
+      draft = parseReviewDraft(result.text)
+    } catch (error) {
+      return fail('review_invalid', `需求评审输出不符合约定：${errorMessage(error)}`)
+    }
+    const review = {
+      reqId: input.reqId,
+      reviewVersion,
+      analysisVersion: analysis.analysisVersion,
+      reviewer: `agent:${input.by}`,
+      verdict: draft.verdict,
+      summary: draft.summary,
+      checks: draft.checks,
+      promptVersion: REVIEW_PROMPT_VERSION,
+      createdAt: this.now(),
+    }
+    this.repo.recordReview(review)
+    return ok(`需求评审 v${reviewVersion}：${draft.verdict}；${draft.summary}`, review)
   }
 
   cancel(input: { reqId: string; by: string; reason: string }): OperationResult {

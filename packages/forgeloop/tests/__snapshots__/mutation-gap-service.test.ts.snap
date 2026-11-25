@@ -97,6 +97,7 @@ exports[`runtime empty-state payloads > keeps a submitted requirement view stabl
     },
     "project": "demo",
     "reqId": "req-fixed",
+    "reviews": [],
     "runs": [],
     "source": "test",
     "specChanges": {

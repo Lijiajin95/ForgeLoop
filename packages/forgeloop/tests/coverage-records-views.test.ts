@@ -853,6 +853,7 @@ describe('requirement detail extras', () => {
       },
       changeImpact: { kind: 'none', changed: [] },
       traceability: [],
+      reviews: [],
     })
   })
 
@@ -1043,6 +1044,7 @@ describe('requirement detail extras', () => {
     })
     const stub = stubRepository({
       getRequirement: () => null,
+      reviews: () => [],
       devClarifications: () => [],
       devClarificationCount: () => 0,
       analyses: () => [undefined, latest],

@@ -9,6 +9,7 @@ import {
   type TraceabilityRow,
 } from '../domain/spec.js'
 import { analysisSpecOf, requirementStageGaps, type StageGap } from '../domain/spec.js'
+import type { RequirementReview } from '../domain/review.js'
 
 export interface RequirementDetailExtras {
   readonly analysisHistory: ReturnType<Repository['analyses']>
@@ -21,6 +22,8 @@ export interface RequirementDetailExtras {
   readonly changeImpact: SpecChangeImpact
   /** 需求阶段的追踪矩阵：每个业务要点到验收项、样例、依据、界面、质量与数据的关联。 */
   readonly traceability: readonly TraceabilityRow[]
+  /** 需求评审记录，按版本排列；只展示，不改变准入。 */
+  readonly reviews: readonly RequirementReview[]
   readonly businessContext: ReturnType<Repository['businessContextChanges']>
   readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
   readonly documents: ReturnType<Repository['documentsOf']>
@@ -83,6 +86,7 @@ export function requirementDetailExtras(
     specChanges: specChanges(previous, latest),
     changeImpact: classifySpecChange(previous, latest),
     traceability: latest ? specTraceability(analysisSpecOf(latest)) : [],
+    reviews: repository.reviews(reqId),
     businessContext: repository.businessContextChanges(reqId),
     analysisInvalidations: repository.analysisInvalidations(reqId),
     documents: repository.documentsOf(reqId),

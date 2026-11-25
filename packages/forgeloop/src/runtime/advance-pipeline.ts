@@ -911,9 +911,7 @@ ${input.blocking.map((item) => `- ${item}`).join('\n') || '- 测试 Agent 未给
       if (verification.verification === null && verification.state === 'block') {
         return this.recordVerificationPrepFailure(reqId, verification.detail)
       }
-      if (
-        businessReviewStopped(verification.state, verification.detail)
-      ) {
+      if (businessReviewStopped(verification.state, verification.detail)) {
         return { state: 'failed', detail: verification.detail }
       }
       if (verification.state === 'pass') {

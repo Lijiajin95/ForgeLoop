@@ -1069,6 +1069,11 @@ window.__ModuleLoader__.load({
       'detail.specDecision': '需要决定',
       'detail.specNewQuestions': '新待澄清',
       'detail.specAssumption': '假设',
+      'detail.specReviews': '需求评审',
+      'detail.specNoReviews': '尚未评审',
+      'detail.specReviewPass': '通过',
+      'detail.specReviewFail': '不通过',
+      'detail.specReviewCheck': '检查项',
       'detail.specDiscovery': '发现层',
       'detail.specNoDiscovery': '没有记录机会与备选方案',
       'detail.specOpportunity': '机会',
@@ -1849,6 +1854,11 @@ window.__ModuleLoader__.load({
       'detail.specDecision': 'Decision needed',
       'detail.specNewQuestions': 'New clarifications',
       'detail.specAssumption': 'Assumption',
+      'detail.specReviews': 'Requirement review',
+      'detail.specNoReviews': 'Not reviewed yet',
+      'detail.specReviewPass': 'pass',
+      'detail.specReviewFail': 'fail',
+      'detail.specReviewCheck': 'Check',
       'detail.specDiscovery': 'Discovery',
       'detail.specNoDiscovery': 'No opportunities or options recorded',
       'detail.specOpportunity': 'Opportunity',
@@ -4022,6 +4032,36 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function reviewView(t, reviews) {
+      const items = Array.isArray(reviews) ? reviews : []
+      const latest = items[items.length - 1]
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'reviews' },
+        h('div', { className: 'flb-label' }, t('detail.specReviews')),
+        !latest
+          ? h('div', { className: 'flb-muted' }, t('detail.specNoReviews'))
+          : h(
+              'div',
+              null,
+              h(
+                'div',
+                null,
+                `v${latest.reviewVersion} · ${latest.verdict === 'pass' ? t('detail.specReviewPass') : t('detail.specReviewFail')} · ${latest.summary}`,
+              ),
+              ...(latest.checks || [])
+                .filter((check) => check.status !== 'pass')
+                .map((check) =>
+                  h(
+                    'div',
+                    { key: check.check, className: 'flb-muted' },
+                    `${t('detail.specReviewCheck')} ${check.check} · ${check.status}：${check.detail}`,
+                  ),
+                ),
+            ),
+      )
+    }
+
     function pointView(t, point, acceptance) {
       const items = acceptance.filter(
         (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
@@ -4111,6 +4151,8 @@ window.__ModuleLoader__.load({
         ...points.map((point) => pointView(t, point, acceptance)),
         referenceView(t, analysis),
         traceabilityView(t, data.traceability),
+        discoveryView(t, analysis),
+        reviewView(t, data.reviews),
         discoveryView(t, analysis),
         traceabilityView(t, data.traceability),
         referenceView(t, analysis),

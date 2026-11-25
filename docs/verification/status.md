@@ -10537,3 +10537,38 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 - 机会的真实性、来源访谈是否发生仍只能靠证据摘录与人工审计；
 - 方案取舍的合理性不做自动判断；
 - 机会与需求版本、澄清历史的关联尚未建立。
+
+## 287. 需求评审记录：独立评审、检查表与版本绑定（2026-11-25）
+
+按《Software Requirements》第 17 章的需求验证，把“评审”做成可追溯记录：独立 Agent 会话按检查表评审最新分析，
+结果按需求与分析版本落库，详情只读展示；不新增人工节点，也不改变准入。
+
+### 287.1 规则
+
+- 评审工具 `forgeloop_review_requirement(req_id)`：由任意 Agent 调用，服务端用**独立会话**（不挂工具）执行评审；
+- 评审只针对最新分析；分析依据的需求版本落后时拒绝评审（`analysis_stale`）；
+- 输出必须是八项检查各出现一次的 JSON：goal、acceptance、evidence、samples、quality、data、assumptions、discovery；
+  状态只能是 pass／fail／na；fail 与 na 必须写理由；pass 不得含 fail，fail 必须至少一个 fail；
+- 记录写入 `requirement_reviews`：评审版本、分析版本、评审者、结论、摘要、检查项、提示词版本与时间；
+- 评审是证据，不是批准：不改变准入、不推进需求、不修改文件。
+
+### 287.2 实现
+
+- `domain/review.ts`：检查表常量、严格解析与校验、`REVIEW_PROMPT_VERSION = review-v1`；
+- `runtime/prompts.ts`：`requirementReviewPrompt` 给出八项检查与判定边界（只有“无法验收、无法追踪或错误授权”才 fail）；
+- `records/review-store.ts` + 新表 `requirement_reviews`（主键 req_id + review_version）；
+- 服务方法 `reviewRequirement`、工具 `forgeloop_review_requirement`、详情 `reviews` 与只读展示；
+- 不新增人工节点，不改变准入。
+
+### 287.3 验证
+
+- 新增 `tests/review.test.ts` 5 项：检查表解析与拒绝、通过评审落库、非法输出不落库、过期分析拒绝、
+  记录往返与版本递增；
+- 详情契约与快照同步；需求详情、客户端、服务快照等用例通过；
+- 已运行 typecheck、eslint、`make check-static`；未运行全量 `make commit-check`（本机既有计时类不稳定）。
+
+### 287.4 未完成
+
+- 评审未接入自动流程：需要 Agent 主动调用工具，尚未做到“分析完成即自动评审”（避免每次分析多一次模型调用）；
+- 评审结论未参与准入：fail 结论目前只展示，不阻断；
+- 评审与变更影响、追踪矩阵之间未建立联动。

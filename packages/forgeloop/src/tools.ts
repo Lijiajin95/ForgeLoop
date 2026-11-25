@@ -581,6 +581,7 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
         }
       },
     }),
+    reviewTool(resolve),
     tool({
       name: 'forgeloop_submit_requirement',
       description:
@@ -615,6 +616,32 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
       },
     }),
   ]
+}
+
+function reviewTool(resolve: ToolScopeResolver): ToolDefinitionLike {
+  const tool = (input: ToolSpec) => defineTool(input, resolve)
+  return tool({
+    name: 'forgeloop_review_requirement',
+    description:
+      'Run an independent review over the latest structured analysis of a requirement and record the checklist result. Read-only: it does not modify files and does not approve, accept or advance the requirement.',
+    parameters: {
+      type: 'object',
+      properties: {
+        req_id: {
+          type: 'string',
+          description: 'Exact requirement id, e.g. req-20261124...',
+        },
+      },
+      required: ['req_id'],
+      additionalProperties: false,
+    },
+    async run(args, scope) {
+      const reqId = stringArg(args, 'req_id')
+      if (!reqId) return { ok: false, text: 'req_id is required' }
+      const outcome = await scope.runtime.reviewRequirement({ reqId, by: scope.config.owner })
+      return { ok: outcome.ok, text: outcome.message, data: outcome.data }
+    },
+  })
 }
 
 function libraryEntryTool(resolve: ToolScopeResolver): ToolDefinitionLike {

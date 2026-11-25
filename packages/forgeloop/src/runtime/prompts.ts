@@ -383,6 +383,50 @@ ${library || '（项目尚未建立需求库；本轮按无背景处理）'}
 - 只输出 JSON。`
 }
 
+export function requirementReviewPrompt(
+  requirement: Requirement,
+  analysis: RequirementAnalysis,
+): string {
+  return `你是 ForgeLoop 的独立需求评审 Agent。你只审查给定的需求说明，不重新分析需求、不修改文件、不调用工具。评审对象是已经落库的分析版本，不是你的偏好。
+
+${requirementContext(requirement)}
+
+待评审的结构化说明（v${analysis.analysisVersion}）：
+${analysisSpecContext(analysis)}
+
+请逐项检查，只输出一个 JSON 对象：
+{
+  "verdict": "pass 或 fail",
+  "summary": "一句话结论",
+  "checks": [
+    { "check": "goal", "status": "pass|fail|na", "detail": "不通过或不适用的理由；通过时可为空" },
+    { "check": "acceptance", "status": "...", "detail": "..." },
+    { "check": "evidence", "status": "...", "detail": "..." },
+    { "check": "samples", "status": "...", "detail": "..." },
+    { "check": "quality", "status": "...", "detail": "..." },
+    { "check": "data", "status": "...", "detail": "..." },
+    { "check": "assumptions", "status": "...", "detail": "..." },
+    { "check": "discovery", "status": "...", "detail": "..." }
+  ]
+}
+
+检查项含义：
+- goal：目标是否一句话说清、可判断完成。
+- acceptance：每个验收项是否给定条件、操作与可观察结果，且覆盖业务要点。
+- evidence：非用户原文的业务要点是否有带版本与摘录的查证依据；用户原文是否逐字可查。
+- samples：关键验收项是否有固定数据、步骤、独立预期与观察位置；有界面变化时是否有反例。
+- quality：涉及非功能约束时是否有指标、含数值与单位的目标和测量方式；不适用填 na。
+- data：涉及数据或个人信息时是否有字段、约束、保留期；不适用填 na。
+- assumptions：未验证的推断是否写清依据、影响与验证方法；需要确认的假设不应当作已确认规则。
+- discovery：有发现层材料时，机会是否客户视角、是否有证据、方案是否至少两个并恰好选中一个；没有材料填 na。
+
+规则：
+- 八项必须各出现一次；status 只能 pass、fail、na；fail 与 na 必须写理由。
+- 不要因为“可以更好”判 fail；只有会造成无法验收、无法追踪或错误授权时才 fail。
+- 评审结论为 pass 时不能有 fail 项；为 fail 时至少一个 fail 项。
+- 只输出 JSON。`
+}
+
 export interface OpsDiagnosisPromptInput {
   readonly eventId: string
   readonly title: string

@@ -9,6 +9,8 @@ import { validateAnalysis, validateRequirement } from '../domain/requirement.js'
 import type { AnalysisAttempt, ClarificationQuestion } from '../domain/analysis.js'
 import { clarificationQuestionId } from '../domain/analysis.js'
 import { AnalysisStore } from './analysis-store.js'
+import { ReviewStore } from './review-store.js'
+import type { RequirementReview } from '../domain/review.js'
 import { BusinessContextStore } from './business-context-store.js'
 import { LibraryStore, type LibrarySyncEntry } from './library-store.js'
 import { LibraryRebuildStore } from './library-rebuild-store.js'
@@ -87,6 +89,7 @@ export class Repository extends DevSessionStore {
   readonly installableDeliveryStore = new InstallableDeliveryStore(this.db)
   readonly metricsStore = new MetricsStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
+  readonly reviewStore = new ReviewStore(this.db)
   readonly businessContextStore = new BusinessContextStore(this.db)
   readonly libraryStore = new LibraryStore(this.db)
   readonly libraryRebuildStore = new LibraryRebuildStore(this.db)
@@ -395,6 +398,22 @@ export class Repository extends DevSessionStore {
 
   analysisInvalidations(reqId: string): ReturnType<AnalysisStore['invalidations']> {
     return this.analysisStore.invalidations(reqId)
+  }
+
+  recordReview(review: RequirementReview): void {
+    this.reviewStore.record(review)
+  }
+
+  reviews(reqId: string): RequirementReview[] {
+    return this.reviewStore.list(reqId)
+  }
+
+  latestReview(reqId: string): RequirementReview | null {
+    return this.reviewStore.latest(reqId)
+  }
+
+  nextReviewVersion(reqId: string): number {
+    return this.reviewStore.nextVersion(reqId)
   }
 
   recordAnalysisAttempt(attempt: AnalysisAttempt): void {
