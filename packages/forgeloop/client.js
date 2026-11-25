@@ -1086,6 +1086,7 @@ window.__ModuleLoader__.load({
       'detail.specTraceAcceptance': '验收',
       'detail.specTraceSamples': '样例',
       'detail.specTraceEvidence': '依据',
+      'detail.specTraceTasks': '任务',
       'detail.specTraceUncovered': '缺样例',
       'detail.specAssumptionStatus': '验证结果',
       'detail.specAssumptionEvidence': '证据',
@@ -1874,6 +1875,7 @@ window.__ModuleLoader__.load({
       'detail.specTraceSamples': 'Samples',
       'detail.specTraceEvidence': 'Evidence',
       'detail.specTraceUncovered': 'Missing sample',
+      'detail.specTraceTasks': 'Tasks',
       'detail.specAssumptionStatus': 'Result',
       'detail.specAssumptionEvidence': 'Evidence',
       'detail.specAssumptionCategory': 'Category',
@@ -3975,7 +3977,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { key: row.pointId, className: 'flb-muted' },
-            `${row.pointId} · ${t('detail.specTraceAcceptance')}：${(row.acceptanceIds || []).join('、') || '—'} · ${t('detail.specTraceSamples')}：${(row.sampleIds || []).join('、') || '—'} · ${t('detail.specTraceEvidence')}：${[...(row.referenceIds || []), ...(row.uiIds || []), ...(row.qualityIds || []), ...(row.dataIds || [])].join('、') || '—'}`,
+            `${row.pointId} · ${t('detail.specTraceAcceptance')}：${(row.acceptanceIds || []).join('、') || '—'} · ${t('detail.specTraceSamples')}：${(row.sampleIds || []).join('、') || '—'} · ${t('detail.specTraceTasks')}：${(row.taskIds || []).join('、') || '—'} · ${t('detail.specTraceEvidence')}：${[...(row.referenceIds || []), ...(row.uiIds || []), ...(row.qualityIds || []), ...(row.dataIds || [])].join('、') || '—'}`,
             row.uncoveredAcceptance && row.uncoveredAcceptance.length > 0
               ? ` · ${t('detail.specTraceUncovered')}：${row.uncoveredAcceptance.join('、')}`
               : null,

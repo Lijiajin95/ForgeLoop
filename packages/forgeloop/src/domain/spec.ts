@@ -1297,6 +1297,7 @@ export function classifySpecChange(
 
 export interface TraceabilityRow {
   readonly pointId: string
+  readonly taskIds: readonly string[]
   readonly acceptanceIds: readonly string[]
   readonly sampleIds: readonly string[]
   readonly referenceIds: readonly string[]
@@ -1313,7 +1314,10 @@ function idsFor(
   return items.filter((item) => item.pointIds.includes(pointId)).map((item) => item.id)
 }
 
-export function specTraceability(spec: AnalysisSpec): TraceabilityRow[] {
+export function specTraceability(
+  spec: AnalysisSpec,
+  tasks: readonly { readonly taskId: string; readonly covers?: readonly string[] }[] = [],
+): TraceabilityRow[] {
   const sampleAcceptance = new Set(spec.samples.flatMap((sample) => sample.acceptanceIds))
   return spec.points.map((point) => {
     const acceptanceIds = spec.acceptance
@@ -1321,6 +1325,9 @@ export function specTraceability(spec: AnalysisSpec): TraceabilityRow[] {
       .map((item) => item.id)
     return {
       pointId: point.id,
+      taskIds: tasks
+        .filter((task) => (task.covers ?? []).includes(point.id))
+        .map((task) => task.taskId),
       acceptanceIds,
       sampleIds: spec.samples
         .filter((sample) => acceptanceIds.some((id) => sample.acceptanceIds.includes(id)))

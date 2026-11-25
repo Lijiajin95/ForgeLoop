@@ -1047,6 +1047,7 @@ describe('requirement detail extras', () => {
       getRequirement: () => null,
       reviews: () => [],
       assumptionResults: () => [],
+      latestTaskPlan: () => null,
       devClarifications: () => [],
       devClarificationCount: () => 0,
       analyses: () => [undefined, latest],

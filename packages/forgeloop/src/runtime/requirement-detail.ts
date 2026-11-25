@@ -88,7 +88,9 @@ export function requirementDetailExtras(
     },
     specChanges: specChanges(previous, latest),
     changeImpact: classifySpecChange(previous, latest),
-    traceability: latest ? specTraceability(analysisSpecOf(latest)) : [],
+    traceability: latest
+      ? specTraceability(analysisSpecOf(latest), repository.latestTaskPlan(reqId)?.tasks ?? [])
+      : [],
     reviews: repository.reviews(reqId),
     assumptionResults: repository.assumptionResults(reqId),
     businessContext: repository.businessContextChanges(reqId),

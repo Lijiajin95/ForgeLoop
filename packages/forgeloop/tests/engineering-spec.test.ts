@@ -320,6 +320,9 @@ describe('engineering spec artifacts', () => {
 
     const uncovered = specTraceability(specOf())
     expect(uncovered[0]?.uncoveredAcceptance).toEqual(['AC-1'])
+
+    const withPlan = specTraceability(specOf(), [{ taskId: 'T-1', covers: ['BP-1'] }])
+    expect(withPlan[0]?.taskIds).toEqual(['T-1'])
   })
 
   it('parses opportunities and solution options with a single chosen option', () => {
