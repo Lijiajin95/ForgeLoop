@@ -633,8 +633,22 @@ ${answer}`
       now: this.now(),
     })
     this.repo.dismissPendingFor(input.reqId, '需求修订：旧请求所依据的版本已过期', this.now())
+    let handoff = ''
+    if (this.config.autoAdvance) {
+      const queued =
+        this.requirementQueue.pending().some((entry) => entry.requirementId === input.reqId) ||
+        this.requirementQueue.inFlight()?.requirementId === input.reqId
+      if (!queued) {
+        this.requirementQueue.enqueue({
+          requirementId: input.reqId,
+          project: this.config.project,
+          enqueuedAt: this.now(),
+        })
+      }
+      handoff = '；已加入自动推进队列，等待协调器重新分析'
+    }
     return ok(
-      `已追加需求 ${input.reqId} 版本 ${updated.versions.length}；既有任务包与批准对该版本过期，需重新分析与规划`,
+      `已追加需求 ${input.reqId} 版本 ${updated.versions.length}；既有任务包与批准对该版本过期，需重新分析与规划${handoff}`,
       this.requirementView(updated),
     )
   }
