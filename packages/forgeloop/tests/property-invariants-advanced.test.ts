@@ -143,10 +143,11 @@ describe('advanced property invariants', () => {
           references: [],
           uiMap: [],
           samples: [],
+          quality: [],
+          data: [],
+          opportunities: [],
+          solutions: [],
           businessContext: input.business_context,
-          references: [],
-          uiMap: [],
-          samples: [],
         })
         // 问题类输入不得携带待澄清项；这是载荷边界，不是可放宽的提示。
         expect(() =>
