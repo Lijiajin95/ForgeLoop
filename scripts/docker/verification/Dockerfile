@@ -32,6 +32,7 @@ RUN git init -q \
     && npm run candidate --workspace forgeloop-dsh \
     && mkdir -p reports
 RUN set -eu; \
+    if [ -n "$NPM_REGISTRY" ]; then pnpm config set --global registry "$NPM_REGISTRY"; fi; \
     pnpm config set --global store-dir /home/node/verification-pnpm-store; \
     export DSH_HOME=/tmp/verification-prefetch; \
     tarball=$(ls packages/forgeloop/dist/forgeloop-dsh-*.tgz); \
