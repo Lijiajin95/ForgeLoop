@@ -437,7 +437,7 @@ describe('requirement enqueue after the first analysis', () => {
     expect(new Set(paths).size).toBe(2)
   })
 
-  it('enqueues once the clarification is answered and does not queue a second analysis', async () => {
+  it('auto-enqueues once the clarification is answered and does not queue a second analysis', async () => {
     next = script(CLARIFY)
     const reqId = submit()
     await runtime.analyzeRequirement(reqId)
@@ -451,9 +451,8 @@ describe('requirement enqueue after the first analysis', () => {
     })
     expect(answered.ok, answered.message).toBe(true)
 
-    const enqueued = runtime.analysisQueue.enqueue(reqId)
-    expect(enqueued.ok, enqueued.message).toBe(true)
-    expect(runtime.requirementQueue.inFlight()?.requirementId).toBe(reqId)
+    expect(runtime.requirementQueue.pending().map((entry) => entry.requirementId)).toContain(reqId)
+    expect(() => runtime.analysisQueue.enqueue(reqId)).toThrow('已在队列中，不能重复入队')
     expect(
       runtime.repo.pendingRequests('demo').filter((request) => request.action === 'analyze'),
     ).toEqual([])
