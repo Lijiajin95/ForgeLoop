@@ -260,8 +260,10 @@ async function verify(target: VerificationTarget): Promise<number> {
     try {
       const sourceSha256 = snapshot(context)
       const imageId = join(pending, 'image-id')
+      const npmRegistry = process.env.FORGELOOP_VERIFICATION_NPM_REGISTRY?.trim()
+      const buildArgs = npmRegistry ? ['--build-arg', `NPM_REGISTRY=${npmRegistry}`] : []
       const build = await docker.attached(
-        ['build', '--file', join(context, DOCKERFILE), '--iidfile', imageId, context],
+        ['build', '--file', join(context, DOCKERFILE), '--iidfile', imageId, ...buildArgs, context],
         control.signal,
       )
       if (build !== 0) throw new Error('验证镜像构建失败')

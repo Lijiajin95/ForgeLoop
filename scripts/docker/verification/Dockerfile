@@ -1,15 +1,17 @@
 FROM node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68
 
+ARG NPM_REGISTRY
+
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates make python3 procps curl \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 pnpm@12.16.1
+    && npm $([ -n "$NPM_REGISTRY" ] && echo "--registry=$NPM_REGISTRY") install --global --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 pnpm@12.16.1
 
 WORKDIR /opt/forgeloop
 RUN chown node:node /opt/forgeloop
 COPY --chown=node:node package.json package-lock.json ./
 COPY --chown=node:node packages/forgeloop/package.json ./packages/forgeloop/
 USER node
-RUN npm ci --no-audit --no-fund
+RUN npm $([ -n "$NPM_REGISTRY" ] && echo "--registry=$NPM_REGISTRY") ci --no-audit --no-fund
 
 COPY --chown=node:node . .
 ENV DSH_AGENTS_HOME=/home/node/verification-agents \
