@@ -129,7 +129,12 @@ describe('automatic retry of blocking failures', () => {
         source: autoRetrySource(attempt),
         now: `2026-11-03T00:${String(attempt).padStart(2, '0')}:00.000Z`,
       })
-      runtime.repo.resolveRequest(request.requestId, 'done', '', `2026-11-03T00:${String(attempt).padStart(2, '0')}:30.000Z`)
+      runtime.repo.resolveRequest(
+        request.requestId,
+        'done',
+        '',
+        `2026-11-03T00:${String(attempt).padStart(2, '0')}:30.000Z`,
+      )
     }
     expect(runtime.autoRetryBlocked('2026-11-04T00:00:00.000Z')).toEqual([])
   })
