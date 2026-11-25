@@ -28,7 +28,9 @@ import {
   analysisSpecContext,
   clarificationContext,
   devPlanningPrompt,
+  requirementReviewPrompt,
 } from './prompts.js'
+import { parseReviewDraft, REVIEW_PROMPT_VERSION } from '../domain/review.js'
 import { buildProjectFacts } from './board.js'
 import { sourceTrusted, type AdmissionDecision } from '../domain/admission.js'
 import { analysisSpecOf, planCoverageIssues, validateSpec } from '../domain/spec.js'
@@ -228,7 +230,7 @@ export class ExecutionPlan {
         ...recorded,
         libraryReview: draft.libraryReview ? JSON.stringify(draft.libraryReview) : '',
       }
-      return this.settleAnalysis({
+      const settled = this.settleAnalysis({
         requirement,
         analysis,
         attempt: attemptWithReview,
@@ -236,6 +238,18 @@ export class ExecutionPlan {
         updates: draft.clarificationUpdates,
         businessContext: draft.businessContext,
       })
+      if (
+        settled.state === 'done' &&
+        analysis.clarifications.length === 0 &&
+        this.deps.config.autoAdvance &&
+        this.deps.config.autoReview
+      ) {
+        const reviewed = await this.autoReview(requirement, analysis, signal)
+        return reviewed
+          ? settled
+          : { ...settled, detail: `${settled.detail}；自动评审未完成` }
+      }
+      return settled
     }
     return { state: 'failed', detail: lastError || '分析未完成' }
   }
@@ -431,6 +445,45 @@ export class ExecutionPlan {
       index: renderLibraryIndex(entries),
       digest: renderLibraryDigest(loaded.digest),
       warnings: loaded.warnings,
+    }
+  }
+
+  private async autoReview(
+    requirement: Requirement,
+    analysis: RequirementAnalysis & { reqId: string },
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    try {
+      const reviewVersion = this.deps.repo.nextReviewVersion(analysis.reqId)
+      const result = await this.deps.runner.run({
+        role: AGENT_PRODUCT,
+        cwd: this.deps.config.projectPath,
+        prompt: requirementReviewPrompt(requirement, analysis),
+        permission: 'workspace-write',
+        timeoutMs: this.deps.config.agent.timeoutSeconds * 1000,
+        transcriptPath: join(
+          sessionsDir(this.deps.config),
+          `${analysis.reqId}-v${analysis.analysisVersion}-review-auto-r${reviewVersion}.jsonl`,
+        ),
+        signal,
+        tools: 'none',
+      })
+      if (result.status !== 'completed') return false
+      const draft = parseReviewDraft(result.text)
+      this.deps.repo.recordReview({
+        reqId: analysis.reqId,
+        reviewVersion,
+        analysisVersion: analysis.analysisVersion,
+        reviewer: 'agent:auto',
+        verdict: draft.verdict,
+        summary: draft.summary,
+        checks: draft.checks,
+        promptVersion: REVIEW_PROMPT_VERSION,
+        createdAt: this.deps.now(),
+      })
+      return true
+    } catch {
+      return false
     }
   }
 

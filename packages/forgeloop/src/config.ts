@@ -362,6 +362,8 @@ export interface ForgeLoopConfig {
   readonly owner: string
   readonly pollSeconds: number
   readonly autoAdvance: boolean
+  /** 自动推进时是否在分析成功后自动触发需求评审；默认开启。 */
+  readonly autoReview: boolean
   readonly agent: AgentConfig
   /** 正式测试命令的超时；-1 表示不限。 */
   readonly formalTestTimeoutSeconds: number
@@ -402,6 +404,7 @@ export interface RawConfig {
   owner?: string
   pollSeconds?: number
   autoAdvance?: boolean
+  autoReview?: boolean
   agent?: Partial<AgentConfig>
   formalTestTimeoutSeconds?: number
   maxTaskAttempts?: number
@@ -1356,6 +1359,7 @@ function resolveEffective(raw: RawConfig, projectPath: string): ForgeLoopConfig 
     owner: textOr(raw.owner, 'local-owner'),
     pollSeconds,
     autoAdvance: raw.autoAdvance === true,
+    autoReview: raw.autoReview !== false,
     agent: {
       provider: agentProvider,
       model: agentModel,
