@@ -10587,6 +10587,7 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 
 - 分支 `fix/main-red-tests`（提交 `454ea55`、`61197f0`）rebase 到最新 main 后，三个文件 57 项通过；容器 `make check`（`node:26.13.0-bookworm`，镜像 `forgeloop-check:red3`）：245 个文件、2701 通过、1 跳过、0 失败。
 - 合并后 main（`61197f0`）再次容器 `make check`：245 个文件、2704 通过、1 跳过、0 失败。
+- 工具面回归（`04a6e62` 新增 `forgeloop_record_assumption_result` 与 `forgeloop_review_requirement`）：工具清单与 schema 快照同步到 20 个工具；最终 main（`33365d0`）容器 `make check` 为 247 个文件、2713 通过、1 跳过、0 失败。
 
 ### 288.3 边界
 
