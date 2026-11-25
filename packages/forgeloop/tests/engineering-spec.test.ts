@@ -7,6 +7,7 @@ import { Repository } from '../src/records/repository.js'
 import {
   parseSpecFields,
   requirementStageGaps,
+  specTraceability,
   validateSpec,
   type AnalysisSpec,
 } from '../src/domain/spec.js'
@@ -279,6 +280,44 @@ describe('engineering spec artifacts', () => {
     })
     const gap = gaps.find((item) => item.code === 'assumption_tests')
     expect(gap?.detail).toContain('AS-1')
+  })
+
+  it('builds a requirement-stage traceability matrix with uncovered acceptance', () => {
+    const fields = parsed({
+      samples: [
+        {
+          id: 'SMP-1',
+          kind: 'normal',
+          acceptance_ids: ['AC-1'],
+          data: '固定数据',
+          precondition: '前置',
+          steps: ['操作'],
+          expected: '预期',
+          observe_at: '页面',
+        },
+      ],
+      quality_attributes: [quality()],
+      data_requirements: [dataRequirement()],
+    })
+    const rows = specTraceability({
+      ...specOf(),
+      acceptance: fields.acceptance,
+      samples: fields.samples,
+      quality: fields.quality,
+      data: fields.data,
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      pointId: 'BP-1',
+      acceptanceIds: ['AC-1'],
+      sampleIds: ['SMP-1'],
+      qualityIds: ['QA-1'],
+      dataIds: ['DATA-1'],
+      uncoveredAcceptance: [],
+    })
+
+    const uncovered = specTraceability(specOf())
+    expect(uncovered[0]?.uncoveredAcceptance).toEqual(['AC-1'])
   })
 
   it('keeps quality attributes and data requirements across record and read', () => {

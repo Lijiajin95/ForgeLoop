@@ -3,8 +3,10 @@ import type { ClarificationAnswer, ClarificationQuestion } from '../domain/analy
 import {
   classifySpecChange,
   specChanges,
+  specTraceability,
   type SpecChangeImpact,
   type SpecChanges,
+  type TraceabilityRow,
 } from '../domain/spec.js'
 import { analysisSpecOf, requirementStageGaps, type StageGap } from '../domain/spec.js'
 
@@ -17,6 +19,8 @@ export interface RequirementDetailExtras {
   readonly specChanges: SpecChanges
   /** 最近两次分析的结构性差异分类：none 表示没有可验收变化，invalid 需要重新验证。 */
   readonly changeImpact: SpecChangeImpact
+  /** 需求阶段的追踪矩阵：每个业务要点到验收项、样例、依据、界面、质量与数据的关联。 */
+  readonly traceability: readonly TraceabilityRow[]
   readonly businessContext: ReturnType<Repository['businessContextChanges']>
   readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
   readonly documents: ReturnType<Repository['documentsOf']>
@@ -78,6 +82,7 @@ export function requirementDetailExtras(
     },
     specChanges: specChanges(previous, latest),
     changeImpact: classifySpecChange(previous, latest),
+    traceability: latest ? specTraceability(analysisSpecOf(latest)) : [],
     businessContext: repository.businessContextChanges(reqId),
     analysisInvalidations: repository.analysisInvalidations(reqId),
     documents: repository.documentsOf(reqId),

@@ -1069,6 +1069,12 @@ window.__ModuleLoader__.load({
       'detail.specDecision': '需要决定',
       'detail.specNewQuestions': '新待澄清',
       'detail.specAssumption': '假设',
+      'detail.specTraceability': '追踪矩阵',
+      'detail.specTracePoint': '业务要点',
+      'detail.specTraceAcceptance': '验收',
+      'detail.specTraceSamples': '样例',
+      'detail.specTraceEvidence': '依据',
+      'detail.specTraceUncovered': '缺样例',
       'detail.specAssumptionCategory': '类别',
       'detail.specAssumptionTest': '验证',
       'detail.specAssumptionThreshold': '通过阈值',
@@ -1836,6 +1842,12 @@ window.__ModuleLoader__.load({
       'detail.specDecision': 'Decision needed',
       'detail.specNewQuestions': 'New clarifications',
       'detail.specAssumption': 'Assumption',
+      'detail.specTraceability': 'Traceability',
+      'detail.specTracePoint': 'Point',
+      'detail.specTraceAcceptance': 'Acceptance',
+      'detail.specTraceSamples': 'Samples',
+      'detail.specTraceEvidence': 'Evidence',
+      'detail.specTraceUncovered': 'Missing sample',
       'detail.specAssumptionCategory': 'Category',
       'detail.specAssumptionTest': 'Test',
       'detail.specAssumptionThreshold': 'Success threshold',
@@ -3924,6 +3936,26 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function traceabilityView(t, rows) {
+      const items = Array.isArray(rows) ? rows : []
+      if (items.length === 0) return null
+      return h(
+        'div',
+        { className: 'flb-subsection', key: 'traceability' },
+        h('div', { className: 'flb-label' }, t('detail.specTraceability')),
+        ...items.map((row) =>
+          h(
+            'div',
+            { key: row.pointId, className: 'flb-muted' },
+            `${row.pointId} · ${t('detail.specTraceAcceptance')}：${(row.acceptanceIds || []).join('、') || '—'} · ${t('detail.specTraceSamples')}：${(row.sampleIds || []).join('、') || '—'} · ${t('detail.specTraceEvidence')}：${[...(row.referenceIds || []), ...(row.uiIds || []), ...(row.qualityIds || []), ...(row.dataIds || [])].join('、') || '—'}`,
+            row.uncoveredAcceptance && row.uncoveredAcceptance.length > 0
+              ? ` · ${t('detail.specTraceUncovered')}：${row.uncoveredAcceptance.join('、')}`
+              : null,
+          ),
+        ),
+      )
+    }
+
     function pointView(t, point, acceptance) {
       const items = acceptance.filter(
         (item) => Array.isArray(item.pointIds) && item.pointIds.includes(point.id),
@@ -4011,6 +4043,8 @@ window.__ModuleLoader__.load({
           : null,
         h('div', { className: 'flb-label', key: 'points-label' }, t('detail.specPoints')),
         ...points.map((point) => pointView(t, point, acceptance)),
+        referenceView(t, analysis),
+        traceabilityView(t, data.traceability),
         referenceView(t, analysis),
         uiMapView(t, analysis),
         qualityView(t, analysis),

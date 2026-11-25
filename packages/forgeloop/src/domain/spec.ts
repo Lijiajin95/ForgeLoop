@@ -1133,6 +1133,45 @@ export function classifySpecChange(
   return { kind: unique.length > 0 ? 'invalid' : 'none', changed: unique }
 }
 
+export interface TraceabilityRow {
+  readonly pointId: string
+  readonly acceptanceIds: readonly string[]
+  readonly sampleIds: readonly string[]
+  readonly referenceIds: readonly string[]
+  readonly uiIds: readonly string[]
+  readonly qualityIds: readonly string[]
+  readonly dataIds: readonly string[]
+  readonly uncoveredAcceptance: readonly string[]
+}
+
+function idsFor(
+  items: readonly { readonly id: string; readonly pointIds: readonly string[] }[],
+  pointId: string,
+): string[] {
+  return items.filter((item) => item.pointIds.includes(pointId)).map((item) => item.id)
+}
+
+export function specTraceability(spec: AnalysisSpec): TraceabilityRow[] {
+  const sampleAcceptance = new Set(spec.samples.flatMap((sample) => sample.acceptanceIds))
+  return spec.points.map((point) => {
+    const acceptanceIds = spec.acceptance
+      .filter((item) => item.pointIds.includes(point.id))
+      .map((item) => item.id)
+    return {
+      pointId: point.id,
+      acceptanceIds,
+      sampleIds: spec.samples
+        .filter((sample) => acceptanceIds.some((id) => sample.acceptanceIds.includes(id)))
+        .map((sample) => sample.id),
+      referenceIds: idsFor(spec.references, point.id),
+      uiIds: idsFor(spec.uiMap, point.id),
+      qualityIds: idsFor(spec.quality, point.id),
+      dataIds: idsFor(spec.data, point.id),
+      uncoveredAcceptance: acceptanceIds.filter((id) => !sampleAcceptance.has(id)),
+    }
+  })
+}
+
 export interface PlanCoverageIssue {
   readonly code: 'unknown_point' | 'missing_point'
   readonly detail: string

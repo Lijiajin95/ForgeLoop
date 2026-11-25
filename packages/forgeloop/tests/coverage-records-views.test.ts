@@ -852,6 +852,7 @@ describe('requirement detail extras', () => {
         changedAssumptions: [],
       },
       changeImpact: { kind: 'none', changed: [] },
+      traceability: [],
     })
   })
 
