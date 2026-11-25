@@ -98,7 +98,7 @@ function plan(reqId: string): TaskPlan {
 }
 
 describe('tool surface', () => {
-  it('exposes exactly the eighteen documented tools with renderable output', () => {
+  it('exposes exactly the twenty documented tools with renderable output', () => {
     expect(tools.map((definition) => definition.name)).toEqual([
       'forgeloop_status',
       'forgeloop_show_requirement',
@@ -117,6 +117,8 @@ describe('tool surface', () => {
       'forgeloop_write_project_doc',
       'forgeloop_web_search',
       'forgeloop_web_fetch',
+      'forgeloop_record_assumption_result',
+      'forgeloop_review_requirement',
       'forgeloop_submit_requirement',
     ])
     const rendered = tool('forgeloop_status').output.render(
@@ -404,8 +406,8 @@ describe('requirement intake tool', () => {
       },
       tools,
     )
-    expect(registered).toHaveLength(18)
-    expect(disposers).toHaveLength(18)
+    expect(registered).toHaveLength(20)
+    expect(disposers).toHaveLength(20)
   })
 
   it('explains the key requirement without a DeepSeek key, and never stores the key', async () => {

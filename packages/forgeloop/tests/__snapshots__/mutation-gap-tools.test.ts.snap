@@ -660,6 +660,96 @@ exports[`tool surface > keeps names, descriptions, parameters and output schemas
     },
   },
   {
+    "description": "Record the observed outcome of a requirement assumption (validated or invalidated) with the evidence that supports it. This is a record, not an approval: it does not change admission or advance the requirement.",
+    "name": "forgeloop_record_assumption_result",
+    "output": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "object",
+        },
+        "ok": {
+          "type": "boolean",
+        },
+        "text": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "ok",
+        "text",
+      ],
+      "type": "object",
+    },
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "assumption_id": {
+          "description": "Assumption id such as AS-1",
+          "type": "string",
+        },
+        "evidence": {
+          "description": "Where the result can be checked, e.g. interview notes, test log, observation",
+          "type": "string",
+        },
+        "req_id": {
+          "description": "Exact requirement id",
+          "type": "string",
+        },
+        "status": {
+          "enum": [
+            "validated",
+            "invalidated",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "req_id",
+        "assumption_id",
+        "status",
+        "evidence",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Run an independent review over the latest structured analysis of a requirement and record the checklist result. Read-only: it does not modify files and does not approve, accept or advance the requirement.",
+    "name": "forgeloop_review_requirement",
+    "output": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "object",
+        },
+        "ok": {
+          "type": "boolean",
+        },
+        "text": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "ok",
+        "text",
+      ],
+      "type": "object",
+    },
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "req_id": {
+          "description": "Exact requirement id, e.g. req-20261124...",
+          "type": "string",
+        },
+      },
+      "required": [
+        "req_id",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "description": "Submit a new ForgeLoop requirement as durable intake (version 1). This records a work item only; it does not approve, execute or accept anything. Use client_key to make retries idempotent.",
     "name": "forgeloop_submit_requirement",
     "output": {
