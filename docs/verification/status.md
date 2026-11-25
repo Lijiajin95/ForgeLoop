@@ -10679,3 +10679,38 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 - 评审结论仍不参与准入（fail 只展示）；
 - 自动评审增加一次模型调用：真实模型下分析回合耗时约翻倍，需要真实模型验证确认可接受；
 - 尚未对“评审自身质量”做抽样复核。
+
+## 292. 真实模型验证：analysis-v9 与自动评审（2026-11-25）
+
+在 Docker 验证环境跑通需求阶段真实模型链路：`analysis-v9` 结构化分析 + 自动评审。
+
+### 292.1 运行
+
+- 场景：`node scripts/ts/docker-verify.ts real-model-e2e`，`FORGELOOP_REAL_MODEL_SCOPE=requirement`；
+- 凭据：本机 Qwen Token Plan 配额已耗尽（429 `insufficient_quota`），改用宿主已配置的 DeepSeek 凭据；
+- 运行标识：`forgeloop-verify-b645a6c8-0693-4d04-8a21-6a6cd7e2dd9f`；
+- 证据目录：`reports/docker-verification/<运行标识>/`（`real-model-requirement.json`、`real-model-headless.log`、`model-proxy.log` 等，已忽略提交）。
+
+### 292.2 结果（如实记录）
+
+- 需求 `req-20261125035848-a53dac`：提交、准入 `admit`、分析 `analysis-v9`、attempt 1 `done`、待澄清 0；
+- 评审：自动产出 `review=pass`，说明“分析成功且无澄清时自动评审”在真实模型下端到端生效；
+- 产物计数：业务要点 1、验收 3、样例 3（其中反例 2）、查证依据 0、功能地图 0、质量属性 0、数据要求 0、
+  机会 0、方案 0、假设 0；
+- 模型代理日志显示 3 次 `api.deepseek.com:443` 允许：分析调用与自动评审调用；
+- 结果为 `blocked` 属需求阶段场景预期：容器内宿主未挂载 `agentPresets.mount`，研发会话无法启动，e2e 在分析完成后结束。
+
+### 292.3 结论与未覆盖
+
+- 真实模型能按 `analysis-v9` 输出业务要点、验收项、样例与反例，并能通过八项检查表产出 `pass` 评审；
+- 本次需求（在文档写一行标记）不涉及质量属性、数据、发现层与假设，因此这些新字段没有真实产物样本；
+  需要专门构造非功能/数据/发现层需求再验一轮；
+- 未验证评审 `fail` 结论与自动评审失败（输出不合约定）在真实模型下的表现；
+- `analysis.model` 在记录里为空字符串，说明分析记录未落模型标识，属既有缺口，未在本批修复。
+
+### 292.4 环境修复（同批合入）
+
+- 本机直连 `registry.npmjs.org` 与 `deb.debian.org` 被阻断，验证镜像构建失败：
+  - `Dockerfile` 支持 `NPM_REGISTRY`、`APT_MIRROR` 构建参数，pnpm 预取也按需设置 registry；
+  - `docker-verify` 读取 `FORGELOOP_VERIFICATION_NPM_REGISTRY`、`FORGELOOP_VERIFICATION_APT_MIRROR` 透传；
+  - 未设置时行为不变；本次用 npmmirror 与清华 Debian 镜像完成构建。

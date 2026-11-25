@@ -948,7 +948,7 @@ async function main(): Promise<void> {
         ? stage.spec.clarifications.length
         : 0
       console.log(
-        `[real-model-e2e] OK：需求阶段完成（analysis-v6 结构化分析）；产物 ${JSON.stringify(counts)}；待澄清 ${clarifications}；准入 ${stage.admission?.decision ?? '未发生'}`,
+        `[real-model-e2e] OK：需求阶段完成（analysis-v9 结构化分析 + 自动评审）；产物 ${JSON.stringify(counts)}；待澄清 ${clarifications}；准入 ${stage.admission?.decision ?? '未发生'}`,
       )
       return
     }
