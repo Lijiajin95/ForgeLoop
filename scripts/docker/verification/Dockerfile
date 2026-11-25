@@ -1,8 +1,14 @@
 FROM node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68
 
 ARG NPM_REGISTRY
+ARG APT_MIRROR
 
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates make python3 procps curl \
+RUN if [ -n "$APT_MIRROR" ]; then \
+      for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$f" ] && sed -i "s|http://deb.debian.org/debian|$APT_MIRROR|g" "$f"; \
+      done; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends git ca-certificates make python3 procps curl \
     && rm -rf /var/lib/apt/lists/* \
     && npm $([ -n "$NPM_REGISTRY" ] && echo "--registry=$NPM_REGISTRY") install --global --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 pnpm@12.16.1
 

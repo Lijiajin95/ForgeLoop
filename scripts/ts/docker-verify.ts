@@ -261,7 +261,11 @@ async function verify(target: VerificationTarget): Promise<number> {
       const sourceSha256 = snapshot(context)
       const imageId = join(pending, 'image-id')
       const npmRegistry = process.env.FORGELOOP_VERIFICATION_NPM_REGISTRY?.trim()
-      const buildArgs = npmRegistry ? ['--build-arg', `NPM_REGISTRY=${npmRegistry}`] : []
+      const aptMirror = process.env.FORGELOOP_VERIFICATION_APT_MIRROR?.trim()
+      const buildArgs = [
+        ...(npmRegistry ? ['--build-arg', `NPM_REGISTRY=${npmRegistry}`] : []),
+        ...(aptMirror ? ['--build-arg', `APT_MIRROR=${aptMirror}`] : []),
+      ]
       const build = await docker.attached(
         ['build', '--file', join(context, DOCKERFILE), '--iidfile', imageId, ...buildArgs, context],
         control.signal,
