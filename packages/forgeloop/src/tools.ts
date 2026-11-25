@@ -320,24 +320,7 @@ export function buildTools(
 export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike[] {
   const tool = (input: ToolSpec) => defineTool(input, resolve)
   return [
-    tool({
-      name: 'forgeloop_status',
-      description:
-        'Read ForgeLoop requirements and their status. Optionally pass req_id for one requirement. Read-only.',
-      parameters: {
-        type: 'object',
-        properties: {
-          req_id: { type: 'string', description: 'Exact requirement id, e.g. req-20261022...' },
-        },
-        additionalProperties: false,
-      },
-      async run(args, scope) {
-        const { runtime } = scope
-        const reqId = stringArg(args, 'req_id')
-        const outcome = runtime.status(reqId)
-        return { ok: outcome.ok, text: outcome.message, data: outcome.data }
-      },
-    }),
+    statusTool(resolve),
     tool({
       name: 'forgeloop_show_requirement',
       description:
@@ -581,6 +564,7 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
         }
       },
     }),
+    assumptionResultTool(resolve),
     reviewTool(resolve),
     tool({
       name: 'forgeloop_submit_requirement',
@@ -616,6 +600,69 @@ export function buildScopedTools(resolve: ToolScopeResolver): ToolDefinitionLike
       },
     }),
   ]
+}
+
+function assumptionResultTool(resolve: ToolScopeResolver): ToolDefinitionLike {
+  const tool = (input: ToolSpec) => defineTool(input, resolve)
+  return tool({
+    name: 'forgeloop_record_assumption_result',
+    description:
+      'Record the observed outcome of a requirement assumption (validated or invalidated) with the evidence that supports it. This is a record, not an approval: it does not change admission or advance the requirement.',
+    parameters: {
+      type: 'object',
+      properties: {
+        req_id: { type: 'string', description: 'Exact requirement id' },
+        assumption_id: { type: 'string', description: 'Assumption id such as AS-1' },
+        status: { type: 'string', enum: ['validated', 'invalidated'] },
+        evidence: {
+          type: 'string',
+          description:
+            'Where the result can be checked, e.g. interview notes, test log, observation',
+        },
+      },
+      required: ['req_id', 'assumption_id', 'status', 'evidence'],
+      additionalProperties: false,
+    },
+    async run(args, scope) {
+      const reqId = stringArg(args, 'req_id')
+      const assumptionId = stringArg(args, 'assumption_id')
+      const statusArg = stringArg(args, 'status')
+      const evidence = stringArg(args, 'evidence')
+      if (!reqId || !assumptionId || !statusArg || !evidence) {
+        return { ok: false, text: 'req_id, assumption_id, status and evidence are required' }
+      }
+      const outcome = scope.runtime.recordAssumptionResult({
+        reqId,
+        assumptionId,
+        status: statusArg,
+        evidence,
+        by: scope.config.owner,
+      })
+      return { ok: outcome.ok, text: outcome.message, data: outcome.data }
+    },
+  })
+}
+
+function statusTool(resolve: ToolScopeResolver): ToolDefinitionLike {
+  const tool = (input: ToolSpec) => defineTool(input, resolve)
+  return tool({
+    name: 'forgeloop_status',
+    description:
+      'Read ForgeLoop requirements and their status. Optionally pass req_id for one requirement. Read-only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        req_id: { type: 'string', description: 'Exact requirement id, e.g. req-20261022...' },
+      },
+      additionalProperties: false,
+    },
+    async run(args, scope) {
+      const { runtime } = scope
+      const reqId = stringArg(args, 'req_id')
+      const outcome = runtime.status(reqId)
+      return { ok: outcome.ok, text: outcome.message, data: outcome.data }
+    },
+  })
 }
 
 function reviewTool(resolve: ToolScopeResolver): ToolDefinitionLike {

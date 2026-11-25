@@ -10,6 +10,8 @@ import type { AnalysisAttempt, ClarificationQuestion } from '../domain/analysis.
 import { clarificationQuestionId } from '../domain/analysis.js'
 import { AnalysisStore } from './analysis-store.js'
 import { ReviewStore } from './review-store.js'
+import { AssumptionResultStore } from './assumption-result-store.js'
+import type { AssumptionResult } from '../domain/assumption-result.js'
 import type { RequirementReview } from '../domain/review.js'
 import { BusinessContextStore } from './business-context-store.js'
 import { LibraryStore, type LibrarySyncEntry } from './library-store.js'
@@ -90,6 +92,7 @@ export class Repository extends DevSessionStore {
   readonly metricsStore = new MetricsStore(this.db)
   readonly analysisStore = new AnalysisStore(this.db)
   readonly reviewStore = new ReviewStore(this.db)
+  readonly assumptionResultStore = new AssumptionResultStore(this.db)
   readonly businessContextStore = new BusinessContextStore(this.db)
   readonly libraryStore = new LibraryStore(this.db)
   readonly libraryRebuildStore = new LibraryRebuildStore(this.db)
@@ -414,6 +417,14 @@ export class Repository extends DevSessionStore {
 
   nextReviewVersion(reqId: string): number {
     return this.reviewStore.nextVersion(reqId)
+  }
+
+  recordAssumptionResult(result: AssumptionResult): void {
+    this.assumptionResultStore.record(result)
+  }
+
+  assumptionResults(reqId: string): AssumptionResult[] {
+    return this.assumptionResultStore.list(reqId)
   }
 
   recordAnalysisAttempt(attempt: AnalysisAttempt): void {

@@ -88,6 +88,7 @@ import { buildStatusBoard, type StatusBoardView } from './board.js'
 import { pendingClarificationsOf, type PendingClarification } from './clarification-view.js'
 import { clarificationAnswerContext } from './clarification-answer.js'
 import { parseReviewDraft, REVIEW_PROMPT_VERSION } from '../domain/review.js'
+import { assertAssumptionResult } from '../domain/assumption-result.js'
 import { recordRevisionInvalidation } from './analysis-lifecycle.js'
 import { requirementDetailExtras } from './requirement-detail.js'
 import { reliabilityReport, type ReliabilityWindow } from './reliability.js'
@@ -652,6 +653,54 @@ ${answer}`
       `已追加需求 ${input.reqId} 版本 ${updated.versions.length}；既有任务包与批准对该版本过期，需重新分析与规划${handoff}`,
       this.requirementView(updated),
     )
+  }
+
+  recordAssumptionResult(input: {
+    reqId: string
+    assumptionId: string
+    status: string
+    evidence: string
+    by: string
+  }): OperationResult {
+    const requirement = this.repo.getRequirement(input.reqId)
+    if (!requirement) return fail('not_found', `未找到需求 ${input.reqId}`)
+    const analysis = this.repo.latestAnalysis(input.reqId)
+    if (!analysis) {
+      return fail('analysis_required', `需求 ${input.reqId} 尚无结构化分析，不能记录假设结果`)
+    }
+    if (analysis.requirementVersion !== requirement.versions.length) {
+      return fail(
+        'analysis_stale',
+        `分析依据 v${analysis.requirementVersion}，当前需求是 v${requirement.versions.length}；请先重新分析`,
+      )
+    }
+    const assumption = (analysis.assumptions ?? []).find((item) => item.id === input.assumptionId)
+    if (!assumption) {
+      return fail('not_found', `分析 v${analysis.analysisVersion} 没有假设 ${input.assumptionId}`)
+    }
+    let status: ReturnType<typeof assertAssumptionResult>
+    try {
+      status = assertAssumptionResult({
+        assumptionId: input.assumptionId,
+        status: input.status,
+        evidence: input.evidence,
+      })
+    } catch (error) {
+      return fail('invalid_result', errorMessage(error))
+    }
+    this.repo.recordAssumptionResult({
+      reqId: input.reqId,
+      analysisVersion: analysis.analysisVersion,
+      assumptionId: input.assumptionId,
+      status,
+      evidence: input.evidence.trim(),
+      recordedBy: input.by,
+      createdAt: this.now(),
+    })
+    return ok(`假设 ${input.assumptionId} 已记录为 ${status}；证据：${input.evidence.trim()}`, {
+      assumptionId: input.assumptionId,
+      status,
+    })
   }
 
   async reviewRequirement(input: {

@@ -484,7 +484,7 @@ auto 目标的 intent 都走这里），`runtime/candidate-pipeline.ts` 的 `ver
   再给来源、引用与更新时间；读取失败或正文被截断时在原位置标明。重建进度与检索分开，运行中在列表
   上方显示阶段、批次与 Agent 过程，完成后先看本轮草案再确认；读取或重建失败仍可浏览已有条目。
 - 需求、任务与问题的详情从右侧窗口打开，关闭或按 Esc 返回，焦点回到发起控件；产品与验证阶段的
-  「Agent 执行过程」读取独立评审可由工具触发，结果按需求与分析版本存入 `requirement_reviews`；需求详情新增的 `analysisActivity` / `verificationActivity` 投影
+  「Agent 执行过程」读取假设验证结果由工具记录并绑定分析版本（`requirement_assumption_results`）；独立评审可由工具触发，结果按需求与分析版本存入 `requirement_reviews`；需求详情新增的 `analysisActivity` / `verificationActivity` 投影
   （各最多 50 条，只有公开结果、工具名、结论、失败分类与尝试身份，不含推理与原始日志）。
 - 天工页挂载时以 `:has(.flb-root)` 隐藏宿主输入区（发送、附件、模型选择与 Token 统计），
   离开视图即恢复；草稿与附件仍由宿主持有，不因切换视图丢失。

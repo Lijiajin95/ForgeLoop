@@ -10591,3 +10591,37 @@ M0 最终运行的关键身份：S1 需求 `req-20261123090306-3a00da`，S3 修�
 ### 288.3 边界
 
 - 提示词快照会随分析模板演进再次失效；改动提示词或输出 schema 时必须同批更新快照与 JSON 往返断言，否则主编译线会再次变红。
+
+## 288. 假设验证结果与证据绑定（2026-11-25）
+
+假设此前只有“待验证的推断”，没有记录验证结果的位置；本批增加结果记录，把结论与证据绑定到具体分析版本。
+
+### 288.1 规则
+
+- 工具 `forgeloop_record_assumption_result(req_id, assumption_id, status, evidence)`：
+  `status` 只能是 `validated` 或 `invalidated`；
+- 硬约束：假设编号必须形如 `AS-n`；证据至少 4 个字符；假设必须存在于**最新分析**；
+  分析依据的需求版本落后时拒绝（`analysis_stale`）；
+- 同一分析版本下重复记录按主键更新，不追加重复行；
+- 结果按 `req_id + analysis_version + assumption_id` 绑定，重新分析后旧结果仍保留但不作用于新版本；
+- 记录是证据，不改变准入、不推进需求。
+
+### 288.2 实现
+
+- 新表 `requirement_assumption_results` 与 `AssumptionResultStore`；
+- `domain/assumption-result.ts`：状态枚举与编号、证据校验；
+- 服务方法 `recordAssumptionResult`、工具 `forgeloop_record_assumption_result`；
+- 需求详情新增 `assumptionResults`，在对应假设下展示状态与证据；
+- 不新增人工节点。
+
+### 288.3 验证
+
+- 新增 `tests/assumption-result.test.ts` 4 项：校验、记录与覆盖、未知假设与过期分析拒绝、记录往返；
+- 相关用例：假设结果、需求详情契约、评审共 33 项通过；
+- 已运行 typecheck、eslint、`make check-static`；未运行全量 `make commit-check`（本机既有计时类不稳定）。
+
+### 288.4 未完成
+
+- 假设结果未参与准入：`invalidated` 只展示，不自动作废相关任务或要求重新分析；
+- 结果不能撤销，只能覆盖；
+- 未记录“验证由谁执行、何时执行”，只记录记录者与写入时间。

@@ -1087,6 +1087,8 @@ window.__ModuleLoader__.load({
       'detail.specTraceSamples': '样例',
       'detail.specTraceEvidence': '依据',
       'detail.specTraceUncovered': '缺样例',
+      'detail.specAssumptionStatus': '验证结果',
+      'detail.specAssumptionEvidence': '证据',
       'detail.specAssumptionCategory': '类别',
       'detail.specAssumptionTest': '验证',
       'detail.specAssumptionThreshold': '通过阈值',
@@ -1872,6 +1874,8 @@ window.__ModuleLoader__.load({
       'detail.specTraceSamples': 'Samples',
       'detail.specTraceEvidence': 'Evidence',
       'detail.specTraceUncovered': 'Missing sample',
+      'detail.specAssumptionStatus': 'Result',
+      'detail.specAssumptionEvidence': 'Evidence',
       'detail.specAssumptionCategory': 'Category',
       'detail.specAssumptionTest': 'Test',
       'detail.specAssumptionThreshold': 'Success threshold',
@@ -4192,6 +4196,20 @@ window.__ModuleLoader__.load({
                         `${t('detail.specAssumptionTest')}：${item.testMethod}；${t('detail.specAssumptionThreshold')}：${item.successThreshold}`,
                       )
                     : null,
+                  (() => {
+                    const result = (data.assumptionResults || []).find(
+                      (entry) =>
+                        entry.assumptionId === item.id &&
+                        entry.analysisVersion === analysis.analysisVersion,
+                    )
+                    return result
+                      ? h(
+                          'div',
+                          { className: 'flb-muted' },
+                          `${t('detail.specAssumptionStatus')}：${result.status} · ${t('detail.specAssumptionEvidence')}：${result.evidence}`,
+                        )
+                      : null
+                  })(),
                 ),
               ),
             )

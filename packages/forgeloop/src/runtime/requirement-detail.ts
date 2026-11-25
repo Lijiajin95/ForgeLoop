@@ -10,6 +10,7 @@ import {
 } from '../domain/spec.js'
 import { analysisSpecOf, requirementStageGaps, type StageGap } from '../domain/spec.js'
 import type { RequirementReview } from '../domain/review.js'
+import type { AssumptionResult } from '../domain/assumption-result.js'
 
 export interface RequirementDetailExtras {
   readonly analysisHistory: ReturnType<Repository['analyses']>
@@ -24,6 +25,8 @@ export interface RequirementDetailExtras {
   readonly traceability: readonly TraceabilityRow[]
   /** 需求评审记录，按版本排列；只展示，不改变准入。 */
   readonly reviews: readonly RequirementReview[]
+  /** 假设验证结果，按分析版本与假设编号绑定。 */
+  readonly assumptionResults: readonly AssumptionResult[]
   readonly businessContext: ReturnType<Repository['businessContextChanges']>
   readonly analysisInvalidations: ReturnType<Repository['analysisInvalidations']>
   readonly documents: ReturnType<Repository['documentsOf']>
@@ -87,6 +90,7 @@ export function requirementDetailExtras(
     changeImpact: classifySpecChange(previous, latest),
     traceability: latest ? specTraceability(analysisSpecOf(latest)) : [],
     reviews: repository.reviews(reqId),
+    assumptionResults: repository.assumptionResults(reqId),
     businessContext: repository.businessContextChanges(reqId),
     analysisInvalidations: repository.analysisInvalidations(reqId),
     documents: repository.documentsOf(reqId),

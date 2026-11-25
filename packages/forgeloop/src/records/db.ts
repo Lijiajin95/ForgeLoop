@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS requirement_analysis_specs (
     spec_json TEXT NOT NULL,
     PRIMARY KEY (req_id, analysis_version)
 );
+CREATE TABLE IF NOT EXISTS requirement_assumption_results (
+    req_id TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    assumption_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    recorded_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (req_id, analysis_version, assumption_id)
+);
 CREATE TABLE IF NOT EXISTS requirement_reviews (
     req_id TEXT NOT NULL,
     review_version INTEGER NOT NULL,
